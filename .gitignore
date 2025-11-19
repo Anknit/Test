@@ -1,0 +1,38 @@
+# Cache directory for historical data
+cache/
+
+# Node modules
+node_modules/
+
+# Environment variables (contains sensitive credentials - DO NOT COMMIT!)
+.env
+.env.*
+!.env.example
+
+# Enctoken backups
+enctoken_backups/
+
+# Log files and backups
+logs/
+*.log
+*.log.bak
+
+# Backtest results (may contain sensitive strategy data)
+backtest_results.json
+
+# Security logs
+security.log
+
+# Browser automation profiles
+chrome-profile-*/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

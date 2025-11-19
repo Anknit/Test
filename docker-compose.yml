@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  kite-trading:
+    build: .
+    container_name: kite-trading-api
+    ports:
+      - "3000:3000"
+    volumes:
+      # Persist logs
+      - ./logs:/app/logs
+      # Persist cache
+      - ./cache:/app/cache
+      # Persist enctoken backups
+      - ./enctoken_backups:/app/enctoken_backups
+      # Mount enctoken file (create it first)
+      - ./.env.enctoken:/app/.env.enctoken:ro
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - TZ=Asia/Kolkata
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

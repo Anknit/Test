@@ -1,0 +1,37 @@
+# Systemd service file for Kite Trading Bot
+#
+# Installation (Linux):
+# 1. Copy this file to: /etc/systemd/system/kite-trading.service
+# 2. Edit the paths and ENCTOKEN below
+# 3. sudo systemctl daemon-reload
+# 4. sudo systemctl enable kite-trading
+# 5. sudo systemctl start kite-trading
+#
+# View logs: journalctl -u kite-trading -f
+
+[Unit]
+Description=Kite Trading Bot with Auto-Restart
+After=network.target
+
+[Service]
+Type=simple
+User=ankit
+WorkingDirectory=/Users/ankit/projects/test
+Environment="ENCTOKEN=YOUR_ENCTOKEN_HERE"
+Environment="NODE_ENV=production"
+ExecStart=/usr/bin/node /Users/ankit/projects/test/supervisor.js --instrument 120395527 --tradingsymbol SILVERM25FEBFUT
+Restart=always
+RestartSec=10
+StandardOutput=append:/Users/ankit/projects/test/logs/trading.log
+StandardError=append:/Users/ankit/projects/test/logs/trading.error.log
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Resource limits
+LimitNOFILE=65536
+MemoryLimit=512M
+
+[Install]
+WantedBy=multi-user.target

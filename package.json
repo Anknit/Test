@@ -1,0 +1,34 @@
+{
+  "name": "kite-trading-bot",
+  "version": "1.0.0",
+  "description": "Automated trading bot for Zerodha Kite with REST API",
+  "main": "api-server.js",
+  "scripts": {
+    "start": "node api-server.js",
+    "dev": "node api-server.js",
+    "trade": "node kite.js",
+    "supervisor": "node supervisor.js",
+    "docker:build": "docker build -t kite-trading-bot .",
+    "docker:run": "docker-compose up -d",
+    "docker:stop": "docker-compose down",
+    "docker:logs": "docker-compose logs -f"
+  },
+  "dependencies": {
+    "axios": "^1.12.2",
+    "cors": "^2.8.5",
+    "csv-parse": "^6.1.0",
+    "dayjs": "^1.11.18",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.2.0",
+    "helmet": "^7.1.0",
+    "minimist": "^1.2.8",
+    "nodemailer": "^7.0.10",
+    "puppeteer": "^24.26.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "author": "Kite Trading Bot",
+  "license": "ISC"
+}

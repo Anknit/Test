@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kite Trading Bot Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1>🤖 Kite Trading Bot Dashboard</h1>
+            <div class="status-badge" id="connectionStatus">
+                <span class="indicator"></span>
+                <span class="text">Connecting...</span>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Left Sidebar - Controls -->
+            <aside class="sidebar">
+                <!-- System Status Card -->
+                <div class="card">
+                    <h2>📊 System Status</h2>
+                    <div class="status-grid">
+                        <div class="status-item">
+                            <span class="label">Trading:</span>
+                            <span class="value" id="tradingStatus">Stopped</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="label">PID:</span>
+                            <span class="value" id="processPid">-</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="label">Uptime:</span>
+                            <span class="value" id="processUptime">-</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="label">Enctoken:</span>
+                            <span class="value" id="enctokenStatus">Unknown</span>
+                        </div>
+                    </div>
+                    <button class="btn btn-secondary btn-block" onclick="refreshStatus()">
+                        🔄 Refresh Status
+                    </button>
+                </div>
+
+                <!-- Auto-Login Card (hidden by default, shown only when enctoken invalid) -->
+                <div class="card" id="loginCard" style="display: none;">
+                    <h2>🔐 Auto-Login</h2>
+                    <p class="info-message">Your enctoken is invalid or expired. Please login:</p>
+                    <form id="loginForm" onsubmit="handleLogin(event)">
+                        <div class="form-group">
+                            <label for="userId">User ID</label>
+                            <input type="text" id="userId" placeholder="AB1234" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="password">Password</label>
+                            <input type="password" id="password" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="totp">2FA Code</label>
+                            <input type="text" id="totp" placeholder="123456" maxlength="6" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-block">
+                            🔑 Login & Fetch Enctoken
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Trading Controls Card -->
+                <div class="card">
+                    <h2>🎮 Trading Controls</h2>
+                    <form id="tradingForm" onsubmit="handleStartTrading(event)">
+                        <div class="form-group">
+                            <label for="instrument">Instrument Token</label>
+                            <input type="text" id="instrument" value="120395527" required>
+                            <small class="form-hint">Example: 120395527 (SILVERM25FEBFUT)</small>
+                        </div>
+                        <div class="form-group checkbox-group">
+                            <label>
+                                <input type="checkbox" id="paperMode">
+                                Paper Trading Mode
+                            </label>
+                        </div>
+                        <div class="form-group checkbox-group">
+                            <label>
+                                <input type="checkbox" id="noTimeExit" checked>
+                                Disable Time Exit
+                            </label>
+                        </div>
+                        <button type="submit" class="btn btn-success btn-block">
+                            ▶️ Start Trading
+                        </button>
+                        <button type="button" class="btn btn-danger btn-block" onclick="stopTrading()">
+                            ⏹️ Stop Trading
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Trading Parameters Card -->
+                <div class="card">
+                    <h2>⚙️ Parameters</h2>
+                    <form id="parametersForm">
+                        <div class="form-group">
+                            <label for="capital">Capital (₹)</label>
+                            <input type="number" id="capital" value="450000" min="10000" step="1000" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="timeframe">Timeframe</label>
+                            <select id="timeframe" class="select-input">
+                                <option value="1">1 Minute</option>
+                                <option value="3" selected>3 Minutes</option>
+                                <option value="5">5 Minutes</option>
+                                <option value="15">15 Minutes</option>
+                                <option value="30">30 Minutes</option>
+                                <option value="60">1 Hour</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="slTicks">Stop Loss (Ticks)</label>
+                            <input type="number" id="slTicks" value="30" min="5" max="200" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="targetTicks">Target (Ticks)</label>
+                            <input type="number" id="targetTicks" value="70" min="10" max="500" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="riskPercent">Risk per Trade (%)</label>
+                            <input type="number" id="riskPercent" value="1.4" min="0.1" max="5" step="0.1" required>
+                        </div>
+                        <button type="button" class="btn btn-primary btn-block" onclick="saveParameters()">
+                            💾 Save Parameters
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-block" onclick="loadParameters()">
+                            🔄 Load Saved
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Backtest Card -->
+                <div class="card">
+                    <h2>📈 Backtest</h2>
+                    <button class="btn btn-info btn-block" onclick="runBacktest()">
+                        🧪 Run Backtest
+                    </button>
+                    <button class="btn btn-secondary btn-block" onclick="loadBacktestResults()">
+                        📊 Load Results
+                    </button>
+                </div>
+
+                <!-- Cache Management -->
+                <div class="card">
+                    <h2>💾 Cache</h2>
+                    <button class="btn btn-secondary btn-block" onclick="viewCache()">
+                        📁 View Cache
+                    </button>
+                    <button class="btn btn-warning btn-block" onclick="clearCache()">
+                        🗑️ Clear Cache
+                    </button>
+                </div>
+            </aside>
+
+            <!-- Main Content Area -->
+            <main class="content">
+                <!-- Tabs -->
+                <div class="tabs">
+                    <button class="tab-btn active" onclick="showTab('logs')">📝 Logs</button>
+                    <button class="tab-btn" onclick="showTab('backtest')">📊 Backtest Results</button>
+                    <button class="tab-btn" onclick="showTab('performance')">💰 Performance</button>
+                    <button class="tab-btn" onclick="showTab('cache')">💾 Cache</button>
+                </div>
+
+                <!-- Logs Tab -->
+                <div id="logsTab" class="tab-content active">
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>📝 Live Logs</h2>
+                            <div class="controls">
+                                <input type="text" id="logFilter" placeholder="Filter logs..."
+                                       onkeyup="filterLogs()" class="filter-input">
+                                <select id="logLines" onchange="loadLogs()" class="select-input">
+                                    <option value="50">Last 50</option>
+                                    <option value="100" selected>Last 100</option>
+                                    <option value="200">Last 200</option>
+                                    <option value="500">Last 500</option>
+                                </select>
+                                <button class="btn btn-sm btn-secondary" onclick="loadLogs()">
+                                    🔄 Refresh
+                                </button>
+                                <button class="btn btn-sm btn-danger" onclick="clearLogs()">
+                                    🗑️ Clear
+                                </button>
+                            </div>
+                        </div>
+                        <div id="logsContainer" class="logs-container">
+                            <div class="loading">Loading logs...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Backtest Results Tab -->
+                <div id="backtestTab" class="tab-content">
+                    <div class="card">
+                        <h2>📊 Backtest Results</h2>
+                        <div id="backtestResults">
+                            <p class="empty-state">No backtest results available. Run a backtest to see results.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Performance Tab -->
+                <div id="performanceTab" class="tab-content">
+                    <div class="card">
+                        <h2>💰 Trading Performance</h2>
+                        <div id="performanceMetrics">
+                            <p class="empty-state">Performance metrics will appear here when trading data is available.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Cache Tab -->
+                <div id="cacheTab" class="tab-content">
+                    <div class="card">
+                        <h2>💾 Cache Files</h2>
+                        <div id="cacheFiles">
+                            <p class="empty-state">Loading cache files...</p>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>

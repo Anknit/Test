@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(node:*)",
+      "Bash(test:*)",
+      "Bash(chmod:*)",
+      "Bash(cat:*)",
+      "Bash(npm install:*)",
+      "Bash(npm audit)",
+      "Bash(npm audit fix:*)",
+      "Bash(npx create-expo-app@latest:*)",
+      "Bash(npm --version:*)",
+      "Bash(export PATH=\"/opt/homebrew/bin:$PATH\")",
+      "Bash(/opt/homebrew/bin/npx create-expo-app@latest kite-mobile --template blank --yes)",
+      "Bash(/opt/homebrew/bin/npm install @react-navigation/native @react-navigation/bottom-tabs @react-navigation/stack expo-secure-store axios react-native-paper)",
+      "Bash(java:*)",
+      "Bash(export JAVA_HOME=/opt/homebrew/opt/openjdk@17:*)",
+      "Bash(npx expo prebuild:*)",
+      "Bash(./gradlew assembleDebug:*)",
+      "Bash(ls:*)",
+      "Bash(eas whoami:*)",
+      "Bash(eas build:*)",
+      "Bash(eas build:configure:*)",
+      "Bash(npm start)",
+      "Bash(/opt/homebrew/bin/npm install @react-native-picker/picker@2.11.1)",
+      "Bash(/opt/homebrew/bin/npm start)",
+      "Bash(/opt/homebrew/bin/npx expo start --tunnel)",
+      "Bash(/opt/homebrew/bin/npx expo start)",
+      "Bash(lsof:*)",
+      "Bash(/opt/homebrew/bin/npx expo start --clear)",
+      "Bash(/opt/homebrew/bin/node:*)",
+      "Bash(/opt/homebrew/bin/npm install react-native-web react-dom @expo/webpack-config)",
+      "Bash(/opt/homebrew/bin/npm install react-native-web@0.21.2 react-dom@19.1.0 --legacy-peer-deps)",
+      "Bash(/opt/homebrew/bin/npx expo export:web)",
+      "Bash(/opt/homebrew/bin/npx expo export --platform web)",
+      "Bash(/opt/homebrew/bin/npm install react-native-safe-area-context)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

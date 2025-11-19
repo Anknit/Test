@@ -1,0 +1,47 @@
+# Node modules
+node_modules/
+npm-debug.log
+
+# Git
+.git/
+.gitignore
+
+# Logs
+logs/
+*.log
+
+# Cache
+cache/
+
+# Environment files
+.env
+.env.*
+!.env.enctoken
+
+# Backups
+enctoken_backups/
+*.bak
+
+# Documentation
+*.md
+!README.md
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test files
+test/
+*.test.js
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Misc
+supervisor.log
+backtest_results.json
