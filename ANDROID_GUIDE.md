@@ -24,31 +24,49 @@ This will install the latest version of Node.js and npm.
 
 ### 1.3. Transfer Project Files
 
-You need to transfer the entire project directory (the one containing `api-server.js`) to your phone's storage.
+You need to transfer the necessary project files (excluding large and unnecessary folders like `node_modules` and `.git`) to your phone's storage.
 
-1.  From your computer, zip the entire project folder.
-2.  Transfer the zip file to your phone (e.g., via USB, Google Drive, etc.).
-3.  In your phone's file manager, unzip the project into a known location, for example, in your "Downloads" folder.
+1.  **On your computer**, navigate to your project's root directory in your terminal.
+2.  Create a zip file containing only the essential files (run this in PowerShell):
+    ```powershell
+    $excludeList = "node_modules", ".git", "kite-mobile", "public", "public-html", "cache", "*.md", "COMPILATION.md", "ecosystem.config.js", "*.zip"
+    Get-ChildItem -Path . -Exclude $excludeList | Compress-Archive -DestinationPath project.zip -Update -CompressionLevel Optimal
+    ```
+    This command creates `project.zip` excluding:
+    *   `node_modules/`: These will be installed on your phone.
+    *   `.git/`: Version control history, not needed on the phone.
+    *   `kite-mobile/`: The mobile app's source code, which will be built separately.
+    *   `public/`: Frontend static assets, not needed for the server.
+    *   `public-html/`: Another frontend folder, not needed for the server.
+    *   `cache/`: Local cache files, not needed for transfer.
+    *   `ecosystem.config.js`: PM2 config, specific to the server's environment.
+    *   `*.md` and `COMPILATION.md`: Documentation files, not needed for runtime.
+    *   `*.zip`: To prevent the zip file from including itself on subsequent runs.
+
+3.  Transfer the `project.zip` file to your phone (e.g., via USB, Google Drive, etc.).
+4.  In your phone's file manager, unzip `project.zip` into a known location, for example, in your "Downloads" folder.
 
 ### 1.4. Run the Server
 
-1.  In Termux, you need to access your phone's storage. Run this command to create a `storage` directory in Termux that links to your phone's storage:
+1.  In Termux, you need to access your phone's storage. If you haven't already, run this command to create a `storage` directory in Termux that links to your phone's storage:
     ```bash
     termux-setup-storage
     ```
-    Accept the permission prompt.
+    Accept the permission prompt if it appears.
 
 2.  Navigate to your project directory. For example, if you unzipped it in your "Downloads" folder:
     ```bash
     cd ~/storage/downloads/your-project-folder-name
     ```
 
-3.  Install the dependencies:
+3.  **Install all dependencies (including pm2):**
+    This command will install all necessary packages, including `pm2`, locally within the project. This avoids most permission issues.
     ```bash
     npm install
     ```
 
-4.  Start the server using `pm2`, which you installed previously:
+4.  **Start the server:**
+    This command will use the locally installed `pm2` to start the server.
     ```bash
     npm run start:dev
     ```
