@@ -52,8 +52,8 @@ dayjs.extend(customParse);
 dayjs.tz.setDefault('Asia/Kolkata');
 
 // ---------------- CONFIG ----------------
-// Market opening time (IST) - Indian markets open at 9:15 AM
-const MARKET_OPEN = '09:15';
+// Market opening time (IST) - Indian markets open at 9:00 AM
+const MARKET_OPEN = '09:00';
 // Market closing time (IST) - Extended for MCX commodities which close at 11:30 PM
 const MARKET_CLOSE = '23:30';
 // Stop taking new trades this many minutes before market close (risk management)
@@ -1067,6 +1067,118 @@ async function main() {
     process.exit(1);
   }
 
+  // --- Live Trading Mode ---
+  if (!paper) {
+    console.log('--- LIVE TRADING MODE ACTIVATED ---');
+
+    // 1. Weekend Check
+    const today = dayjs();
+    const dayOfWeek = today.day(); // Sunday = 0, Saturday = 6
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+      console.log('Today is a weekend. Exiting live trading mode.');
+      process.exit(0);
+    }
+
+    // 2. End-of-Day Exit Scheduler
+    const marketCloseTime = dayjs().hour(23).minute(31).second(0);
+    const msUntilClose = marketCloseTime.diff(today);
+    
+    if (msUntilClose > 0) {
+      console.log(`Scheduled to exit automatically at ${marketCloseTime.format('HH:mm:ss')}`);
+      setTimeout(() => {
+        console.log('Market is closed. Exiting now.');
+        process.exit(0);
+      }, msUntilClose);
+    }
+
+    let isPositionOpen = false;
+
+    // Start order monitor in the background to handle exits
+    console.log('Starting persistent order monitor...');
+    orderMonitorLoop(enctoken, 3000, () => false, false).catch(e => console.error('Order monitor stopped with error:', e));
+
+    const liveTick = async () => {
+      try {
+        // 3. Market Hours Check
+        const now = dayjs();
+        const marketOpen = now.hour(9).minute(0);
+        const marketClose = now.hour(23).minute(30);
+
+        if (now.isBefore(marketOpen) || now.isAfter(marketClose)) {
+          console.log(`Outside market hours. Current time: ${now.format('HH:mm:ss')}. Waiting...`);
+          return;
+        }
+
+        // Check for open positions before attempting a new trade
+        const positions = await fetchOpenOrders(enctoken);
+        const openPositions = positions.filter(p => p.tradingsymbol === argv.tradingsymbol && p.quantity !== 0);
+        isPositionOpen = openPositions.length > 0;
+
+        if (isPositionOpen) {
+          console.log(`Position already open for ${argv.tradingsymbol}. Skipping new trade check.`);
+          return;
+        }
+
+        console.log(`\n[${dayjs().format('HH:mm:ss')}] Checking for new signals...`);
+        
+        // Fetch recent data (e.g., last 2 days) to ensure enough data for indicators
+        const to = dayjs();
+        const from = to.subtract(2, 'day');
+        const raw = await fetchHistorical(enctoken, instrument, interval, from, to);
+
+        if (!raw || raw.length === 0) {
+          console.error('No bars returned for live tick.');
+          return;
+        }
+
+        const signals = generateSignals(raw, { /* ... use live params ... */ });
+        const lastSig = signals.slice(-1)[0];
+
+        if (lastSig && (lastSig.signal === 1 || lastSig.signal === -1)) {
+          const side = lastSig.signal === 1 ? 'BUY' : 'SELL';
+          console.log(`>>> New Signal Detected: ${side} at ${lastSig.Close}`);
+          
+          const contracts = computeQuantity({
+            capital: 450000,
+            riskPct: 0.02,
+            slTicks: 40,
+            tickValuePerContract: 10
+          });
+
+          if (contracts >= 1) {
+            console.log(`Placing ${side} order for ${contracts} contracts...`);
+            await placeEntryWithSLTarget({
+              enctoken,
+              tradingsymbol: argv.tradingsymbol,
+              exchange: 'MCX', // This should be dynamic
+              side,
+              contracts,
+              slTicks: 40,
+              targetTicks: 20,
+              tickValue: 10,
+              paperMode: false,
+              lastLTP: lastSig.Close
+            });
+            isPositionOpen = true; // Assume position is open after placing order
+          }
+        } else {
+          console.log('No new signal.');
+        }
+      } catch (error) {
+        console.error('Error in live tick:', error.message);
+      }
+    };
+    
+    // Run the fist tick immediately, then start the interval
+    liveTick();
+    const intervalMinutes = parseInt(interval.replace('minute', '')) || 2;
+    setInterval(liveTick, intervalMinutes * 60 * 1000);
+
+    return; // Keep the process alive
+  }
+
+  // --- Backtesting / Paper-trading Mode ---
+  console.log('--- BACKTEST / PAPER MODE ---');
   // Fetch historical data for backtesting (with caching support)
   const to = dayjs();
   const from = to.subtract(days, 'day');
@@ -1082,26 +1194,24 @@ async function main() {
 
   // Generate trading signals using technical indicators - SCALPING OPTIMIZED
   const signals = generateSignals(raw, {
-    fast_ema: 12,           // 12-period fast EMA (balanced for 5-min scalping)
-    slow_ema: 26,           // 26-period slow EMA (MACD-style trend)
-    rsi_len: 14,            // 14-period RSI (standard, reliable)
-    vol_mult: 1.15,         // Volume must be 1.15x average
-    breakout_lookback: 20,  // Not used in scalping but kept for compatibility
-    rsi_upper: 70,          // Standard RSI upper bound
-    rsi_lower: 30,          // Standard RSI lower bound
-    atr_len: 14             // ATR for volatility measurement
+    fast_ema: 12,
+    slow_ema: 26,
+    rsi_len: 14,
+    vol_mult: 1.15,
+    breakout_lookback: 20,
+    atr_len: 14
   });
 
-  // Run backtest on historical data - OPTIMIZED POSITIVE P&L STRATEGY
+  // Run backtest on historical data
   const { trades, stats } = backtestSameDay(signals, {
-    capital: 450000,            // Starting capital for backtest
-    sl_ticks: 30,               // 300 points stop-loss (tighter)
-    target_ticks: 70,           // 700 points target (R:R = 2.33:1)
-    tick_value: 10,             // ₹10 per point for SILVER futures
-    max_hold_candles: noTimeExit ? null : 60,  // Time exit controlled by --notimeexit flag
-    risk_per_trade_pct: 0.014,  // Risk 1.4% per trade = ₹1,400
+    capital: 450000,
+    sl_ticks: 30,
+    target_ticks: 70,
+    tick_value: 10,
+    max_hold_candles: noTimeExit ? null : 60,
+    risk_per_trade_pct: 0.014,
     commission_per_trade: 20,
-    slippage_pct: 0.0001,       // Very low slippage
+    slippage_pct: 0.0001,
     market_open: MARKET_OPEN,
     market_close: MARKET_CLOSE,
     block_last_minutes: NO_ENTRY_BEFORE_CLOSE_MIN
@@ -1115,32 +1225,6 @@ async function main() {
   console.log(`Avg Loss: ₹${stats.avg_loss.toFixed(2)}`);
   console.log(`Profit Factor: ${stats.avg_win && stats.avg_loss ? (Math.abs(stats.avg_win / stats.avg_loss)).toFixed(2) : 'N/A'}`);
 
-  // Show sample trades to understand what's happening
-  console.log('\n=== SAMPLE TRADES (First 5) ===');
-  trades.slice(0, 5).forEach((t, idx) => {
-    console.log(`${idx + 1}. ${t.side} | Entry: ${t.entry_price.toFixed(2)} | Exit: ${t.exit_price.toFixed(2)} | P&L: ₹${t.pnl.toFixed(2)} | Reason: ${t.reason}`);
-  });
-
-  // Exit reason breakdown
-  const exitReasons = trades.reduce((acc, t) => {
-    acc[t.reason] = (acc[t.reason] || 0) + 1;
-    return acc;
-  }, {});
-  console.log('\n=== EXIT REASON BREAKDOWN ===');
-  Object.entries(exitReasons).forEach(([reason, count]) => {
-    const pct = (count / trades.length * 100).toFixed(1);
-    console.log(`${reason}: ${count} (${pct}%)`);
-  });
-
-  // Diagnostic: Count total signals generated
-  const totalSignals = signals.filter(s => s.signal !== 0).length;
-  const buySignals = signals.filter(s => s.signal === 1).length;
-  const sellSignals = signals.filter(s => s.signal === -1).length;
-  console.log(`\n=== SIGNAL ANALYSIS ===`);
-  console.log(`Total signals: ${totalSignals} (Buy: ${buySignals}, Sell: ${sellSignals})`);
-  console.log(`Total bars: ${signals.length}`);
-  console.log(`Signal frequency: ${(totalSignals/signals.length*100).toFixed(2)}%`);
-
   // Save backtest results to file for API access
   const resultsFile = path.join(__dirname, 'backtest_results.json');
   const backtestResults = {
@@ -1150,18 +1234,20 @@ async function main() {
     interval: interval,
     days: days,
     trades: stats.trades,
-    winRate: stats.win_rate,
-    totalPnl: stats.total_pnl,
+    winningTrades: trades.filter(t => t.pnl > 0).length,
+    losingTrades: trades.filter(t => t.pnl < 0).length,
+    winRate: (stats.win_rate * 100).toFixed(2),
+    totalPnL: stats.total_pnl,
     finalEquity: stats.final_equity,
     avgWin: stats.avg_win,
     avgLoss: stats.avg_loss,
     profitFactor: stats.avg_win && stats.avg_loss ? Math.abs(stats.avg_win / stats.avg_loss) : 0,
-    exitReasons: exitReasons,
+    exitReasons: trades.reduce((acc, t) => { acc[t.reason] = (acc[t.reason] || 0) + 1; return acc; }, {}),
     signalAnalysis: {
-      total: totalSignals,
-      buy: buySignals,
-      sell: sellSignals,
-      frequency: totalSignals/signals.length
+      total: signals.filter(s => s.signal !== 0).length,
+      buy: signals.filter(s => s.signal === 1).length,
+      sell: signals.filter(s => s.signal === -1).length,
+      frequency: signals.filter(s => s.signal !== 0).length/signals.length
     },
     parameters: {
       capital: 450000,
@@ -1177,72 +1263,6 @@ async function main() {
     console.log(`\n✓ Backtest results saved to ${resultsFile}`);
   } catch (err) {
     console.error(`Failed to save backtest results: ${err.message}`);
-  }
-
-  // Diagnostic: Check ATR values to understand proper stop/target distances
-  const recentSignals = signals.filter(s => s.signal !== 0 && s.atr).slice(-20);
-  if (recentSignals.length > 0) {
-    const avgAtr = recentSignals.reduce((sum, s) => sum + s.atr, 0) / recentSignals.length;
-    const avgPrice = recentSignals.reduce((sum, s) => sum + s.Close, 0) / recentSignals.length;
-    console.log(`\n=== PRICE/VOLATILITY ANALYSIS ===`);
-    console.log(`Avg Price: ₹${avgPrice.toFixed(2)}`);
-    console.log(`Avg ATR: ₹${avgAtr.toFixed(2)}`);
-    console.log(`ATR as % of price: ${(avgAtr/avgPrice*100).toFixed(3)}%`);
-    console.log(`Recommended SL: ${Math.round(avgAtr * 0.5)} points = ${Math.round(avgAtr * 0.5 / 10)} ticks`);
-    console.log(`Recommended Target: ${Math.round(avgAtr * 1.0)} points = ${Math.round(avgAtr * 1.0 / 10)} ticks`);
-  }
-
-  // Check if latest bar has a buy or sell signal (for live trading)
-  const lastSig = signals.slice(-1)[0];
-  if (lastSig && (lastSig.signal === 1 || lastSig.signal === -1)) {
-    const side = lastSig.signal === 1 ? 'BUY' : 'SELL';
-    const direction = lastSig.signal === 1 ? 'LONG' : 'SHORT';
-    console.log(`Detected ${direction} signal at latest bar`);
-
-    // Calculate position size based on risk management - FIXED STOPS AS REQUESTED
-    const slTicks = 40;  // 400 points stop-loss (40 ticks × 10 per tick)
-    const targetTicks = 20;  // 200 points target (20 ticks × 10 per tick)
-    const contracts = computeQuantity({
-      capital: 450000,           // Total capital (₹4.5 lakhs) as requested
-      riskPct: 0.02,            // Risk 2% per trade (₹9,000 total)
-      slTicks,
-      tickValuePerContract: 10   // ₹10 per point for SILVER futures
-    });
-    console.log('Computed contracts:', contracts);
-    console.log(`Risk per trade: ₹${(450000 * 0.02).toFixed(0)}`);
-    console.log(`Stop-loss: ${slTicks} ticks = ${slTicks * 10} points = ₹${slTicks * 10 * contracts} max loss`);
-    console.log(`Target: ${targetTicks} ticks = ${targetTicks * 10} points = ₹${targetTicks * 10 * contracts} potential profit`);
-
-    if (contracts >= 1) {
-      const ltp = lastSig.Close;  // Use last close as entry price estimate
-      console.log(`Placing ${direction} entry (paper=${paper}) at LTP ${ltp}`);
-
-      // Place bracket order (entry + SL + target) - FIXED POINTS
-      const placed = await placeEntryWithSLTarget({
-        enctoken,
-        tradingsymbol: argv.tradingsymbol || 'SILVER',  // Trading symbol required for live
-        exchange: 'MCX',
-        side,  // BUY for long, SELL for short
-        contracts,
-        slTicks,
-        targetTicks,  // 200 points target (as requested)
-        tickValue: 10,
-        paperMode: paper,
-        lastLTP: ltp
-      });
-      console.log('Placed result:', placed);
-
-      // Start order monitor for live trades (auto-cancel opposite leg on fill)
-      if (!paper) {
-        console.log('Starting order monitor...');
-        const stopSignal = () => false;  // Run indefinitely
-        orderMonitorLoop(enctoken, 3000, stopSignal, false).catch(e => console.error('Monitor stopped', e));
-      }
-    } else {
-      console.log('Not enough risk budget to take 1 contract. Reduce SL ticks or increase riskPct.');
-    }
-  } else {
-    console.log('No current trading signal at latest bar.');
   }
 }
 

@@ -182,6 +182,12 @@ class ApiClient {
     return await this.get(API_ENDPOINTS.BACKTEST_RESULTS);
   }
 
+  // ==================== Instruments ====================
+
+  async getInstruments() {
+    return await this.get(API_ENDPOINTS.INSTRUMENTS);
+  }
+
   // ==================== Cache ====================
 
   /**

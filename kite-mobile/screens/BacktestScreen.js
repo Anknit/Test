@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   ScrollView,
   StyleSheet,
   Alert,
+  Platform,
 } from 'react-native';
 import {
   Card,
@@ -22,9 +23,10 @@ import { COLORS, TIMEFRAMES, DEFAULT_PARAMS } from '../utils/constants';
 export default function BacktestScreen() {
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState(null);
+  const [instruments, setInstruments] = useState([]);
 
   // Backtest parameters
-  const [instrument, setInstrument] = useState('120395527');
+  const [tradingsymbol, setTradingsymbol] = useState('');
   const [capital, setCapital] = useState(DEFAULT_PARAMS.CAPITAL.toString());
   const [timeframe, setTimeframe] = useState(DEFAULT_PARAMS.TIMEFRAME);
   const [slTicks, setSlTicks] = useState(DEFAULT_PARAMS.SL_TICKS.toString());
@@ -33,13 +35,33 @@ export default function BacktestScreen() {
 
   const [errors, setErrors] = useState({});
 
+  useEffect(() => {
+    fetchInstruments();
+  }, []);
+
+  const fetchInstruments = async () => {
+    try {
+      const response = await apiClient.getInstruments();
+      if (response.success && response.data.length > 0) {
+        setInstruments(response.data);
+        setTradingsymbol(response.data[0]); // Set default to the first one
+      }
+    } catch (error) {
+      console.error('Error fetching instruments:', error);
+      const errorMessage = `Failed to fetch instruments: ${error.message}`;
+      if (Platform.OS === 'web') {
+        window.alert(errorMessage);
+      } else {
+        Alert.alert('Error', errorMessage);
+      }
+    }
+  };
+
   const validateInputs = () => {
     const newErrors = {};
 
-    if (!instrument.trim()) {
-      newErrors.instrument = 'Instrument token is required';
-    } else if (isNaN(parseInt(instrument))) {
-      newErrors.instrument = 'Must be a valid number';
+    if (!tradingsymbol) {
+      newErrors.tradingsymbol = 'Trading Symbol is required';
     }
 
     if (!capital.trim()) {
@@ -72,7 +94,11 @@ export default function BacktestScreen() {
 
   const handleRunBacktest = async () => {
     if (!validateInputs()) {
-      Alert.alert('Validation Error', 'Please fix the errors before running backtest.');
+      if (Platform.OS === 'web') {
+        window.alert('Validation Error: Please fix the errors before running backtest.');
+      } else {
+        Alert.alert('Validation Error', 'Please fix the errors before running backtest.');
+      }
       return;
     }
 
@@ -81,19 +107,23 @@ export default function BacktestScreen() {
 
     try {
       const params = {
-        instrument,
+        tradingsymbol,
         capital: parseFloat(capital),
         timeframe,
-        sl_ticks: parseInt(slTicks),
-        target_ticks: parseInt(targetTicks),
-        risk_per_trade_pct: parseFloat(riskPct) / 100,
+        slTicks: parseInt(slTicks),
+        targetTicks: parseInt(targetTicks),
+        riskPercent: parseFloat(riskPct) / 100,
         notimeexit: true, // Backtest typically doesn't have time exit
       };
 
       const response = await apiClient.runBacktest(params);
 
       if (response.success) {
-        Alert.alert('Success', 'Backtest completed successfully!');
+        if (Platform.OS === 'web') {
+          window.alert('Success: Backtest completed successfully!');
+        } else {
+          Alert.alert('Success', 'Backtest completed successfully!');
+        }
         // Try to fetch results
         try {
           const resultsData = await apiClient.getBacktestResults();
@@ -104,10 +134,20 @@ export default function BacktestScreen() {
           console.error('Error fetching results:', err);
         }
       } else {
-        Alert.alert('Error', response.error || 'Backtest failed');
+        const errorMessage = response.error || 'Backtest failed';
+        if (Platform.OS === 'web') {
+          window.alert(`Error: ${errorMessage}`);
+        } else {
+          Alert.alert('Error', errorMessage);
+        }
       }
     } catch (error) {
-      Alert.alert('Error', error.message);
+      const errorMessage = error.message || 'An unknown error occurred.';
+      if (Platform.OS === 'web') {
+        window.alert(`Error: ${errorMessage}`);
+      } else {
+        Alert.alert('Error', errorMessage);
+      }
     } finally {
       setLoading(false);
     }
@@ -136,18 +176,22 @@ export default function BacktestScreen() {
           <Title style={styles.cardTitle}>Backtest Parameters</Title>
           <Divider style={styles.divider} />
 
-          <TextInput
-            label="Instrument Token"
-            value={instrument}
-            onChangeText={setInstrument}
-            mode="outlined"
-            keyboardType="numeric"
-            error={!!errors.instrument}
-            style={styles.input}
-          />
-          {errors.instrument && (
-            <HelperText type="error">{errors.instrument}</HelperText>
-          )}
+          <View style={styles.pickerContainer}>
+            <Paragraph style={styles.pickerLabel}>Trading Symbol</Paragraph>
+            <Picker
+              selectedValue={tradingsymbol}
+              onValueChange={(itemValue) => setTradingsymbol(itemValue)}
+              style={styles.picker}
+              enabled={instruments.length > 0}
+            >
+              {instruments.map(symbol => (
+                <Picker.Item key={symbol} label={symbol} value={symbol} />
+              ))}
+            </Picker>
+            {errors.tradingsymbol && (
+              <HelperText type="error">{errors.tradingsymbol}</HelperText>
+            )}
+          </View>
 
           <TextInput
             label="Capital (₹)"
@@ -236,7 +280,7 @@ export default function BacktestScreen() {
 
             <View style={styles.resultRow}>
               <Paragraph style={styles.resultLabel}>Total Trades:</Paragraph>
-              <Paragraph style={styles.resultValue}>{results.totalTrades || 'N/A'}</Paragraph>
+              <Paragraph style={styles.resultValue}>{results.trades || 'N/A'}</Paragraph>
             </View>
 
             <View style={styles.resultRow}>

@@ -10,6 +10,7 @@ const path = require('path');
 const dayjs = require('dayjs');
 const axios = require('axios');
 const nodemailer = require('nodemailer');
+const os = require('os');
 
 // Import security middleware
 const security = require('./security');
@@ -53,6 +54,11 @@ const SECURITY_LOG = path.join(LOG_DIR, 'security.log');
 const ENCTOKEN_FILE = path.join(__dirname, '.env.enctoken');
 const ENCTOKEN_BACKUP_DIR = path.join(__dirname, 'enctoken_backups');
 const EMAIL_CONFIG_FILE = path.join(__dirname, '.env.email');
+const TRADING_SYMBOLS_FILE = path.join(__dirname, 'trading_symbols.json');
+const TRADING_STATE_FILE = path.join(__dirname, 'trading_state.json');
+
+// In-memory cache for instrument data: tradingsymbol -> instrumentToken
+const instrumentsMap = new Map();
 
 // Ensure directories exist
 if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
@@ -67,6 +73,29 @@ let tradingProcess = null;
 let processStartTime = null;
 let processRestartCount = 0;
 let lastRestartTime = null;
+
+// --- Trading State Persistence ---
+
+function getTradingState() {
+  if (!fs.existsSync(TRADING_STATE_FILE)) {
+    return { isRunning: false, args: [] };
+  }
+  try {
+    const data = fs.readFileSync(TRADING_STATE_FILE, 'utf8');
+    return JSON.parse(data);
+  } catch (error) {
+    log(`Error reading trading state: ${error.message}`, 'ERROR');
+    return { isRunning: false, args: [] };
+  }
+}
+
+function saveTradingState(state) {
+  try {
+    fs.writeFileSync(TRADING_STATE_FILE, JSON.stringify(state, null, 2));
+  } catch (error) {
+    log(`Error saving trading state: ${error.message}`, 'ERROR');
+  }
+}
 
 // Logger (with sanitization for sensitive data)
 function log(message, level = 'INFO', sanitize = true) {
@@ -83,6 +112,30 @@ function log(message, level = 'INFO', sanitize = true) {
   } catch (err) {
     console.error('Failed to write to log file:', err.message);
   }
+}
+
+// Load instruments from JSON file
+function loadInstruments() {
+  log('Loading instruments data from trading_symbols.json...', 'INFO');
+  try {
+    if (fs.existsSync(TRADING_SYMBOLS_FILE)) {
+      const data = fs.readFileSync(TRADING_SYMBOLS_FILE, 'utf8');
+      const instruments = JSON.parse(data);
+      instruments.forEach(instrument => {
+        instrumentsMap.set(instrument.tradingsymbol, instrument.instrument_token);
+      });
+      log(`Loaded ${instrumentsMap.size} instruments.`, 'INFO');
+    } else {
+      log('trading_symbols.json not found. Instrument lookup will not work.', 'WARN');
+    }
+  } catch (err) {
+    log(`Error loading instruments from trading_symbols.json: ${err.message}`, 'ERROR');
+  }
+}
+
+// Get instrument token by trading symbol
+function getInstrumentToken(tradingsymbol) {
+  return instrumentsMap.get(tradingsymbol) || null;
 }
 
 // Validate enctoken
@@ -236,6 +289,7 @@ function startTradingProcess(args = []) {
     });
 
     processStartTime = new Date();
+    saveTradingState({ isRunning: true, args });
 
     tradingProcess.stdout.on('data', (data) => {
       const output = data.toString();
@@ -251,6 +305,7 @@ function startTradingProcess(args = []) {
       log(`Trading process exited: code=${code}, signal=${signal}`, 'WARN');
       tradingProcess = null;
       processStartTime = null;
+      saveTradingState({ isRunning: false, args: [] });
 
       if (code !== 0 && signal !== 'SIGTERM' && signal !== 'SIGINT') {
         processRestartCount++;
@@ -262,6 +317,7 @@ function startTradingProcess(args = []) {
       log(`Failed to start trading process: ${err.message}`, 'ERROR');
       tradingProcess = null;
       processStartTime = null;
+      saveTradingState({ isRunning: false, args: [] });
     });
 
     return { success: true, message: 'Trading process started', pid: tradingProcess.pid };
@@ -274,10 +330,12 @@ function startTradingProcess(args = []) {
 // Stop trading process
 function stopTradingProcess() {
   if (!tradingProcess) {
+    saveTradingState({ isRunning: false, args: [] }); // Ensure state is cleared
     return { success: false, message: 'No trading process running' };
   }
 
   log('Stopping trading process...', 'INFO');
+  saveTradingState({ isRunning: false, args: [] });
 
   try {
     tradingProcess.kill('SIGTERM');
@@ -384,11 +442,20 @@ async function fetchEnctokenViaLogin(userId, password, totp) {
 
 // Get process status
 function getProcessStatus() {
+  const isRunning = tradingProcess !== null;
   const status = {
-    running: tradingProcess !== null,
-    pid: tradingProcess ? tradingProcess.pid : null,
-    startTime: processStartTime,
-    uptime: processStartTime ? Math.floor((new Date() - processStartTime) / 1000) : null,
+    trading: isRunning ? 'running' : 'stopped',
+    process: {
+      pid: isRunning ? tradingProcess.pid : null,
+      startTime: processStartTime,
+      uptime: processStartTime ? Math.floor((new Date() - processStartTime) / 1000) : null,
+      memory: isRunning ? `${(process.memoryUsage().rss / 1024 / 1024).toFixed(2)} MB` : null,
+    },
+    server: {
+      hostname: os.hostname(),
+      platform: os.platform(),
+      uptime: Math.floor(process.uptime()),
+    },
     restartCount: processRestartCount,
     lastRestartTime: lastRestartTime,
     enctokenValid: validateEnctoken(getEnctoken())
@@ -412,6 +479,19 @@ app.get('/api/status', (req, res) => {
   res.json({ success: true, data: status });
 });
 
+// Get instruments
+app.get('/api/instruments', (req, res) => {
+  try {
+    const symbols = Array.from(instrumentsMap.keys());
+    res.json({
+      success: true,
+      data: symbols,
+    });
+  } catch (err) {
+    security.sendErrorResponse(err, res, 500);
+  }
+});
+
 // Apply authentication and rate limiting to all /api/* endpoints
 app.use('/api', security.apiLimiter, security.requireAuth);
 
@@ -421,15 +501,16 @@ app.post('/api/trading/start', (req, res) => {
   try {
     // Validate and sanitize input
     const validated = security.validateTradingParams(req.body);
+    const instrumentToken = getInstrumentToken(validated.tradingsymbol);
+
+    if (!instrumentToken) {
+      return res.status(400).json({ success: false, error: `Instrument token not found for tradingsymbol: ${validated.tradingsymbol}` });
+    }
 
     const processArgs = [];
+    processArgs.push('--instrument', instrumentToken);
+    processArgs.push('--tradingsymbol', validated.tradingsymbol);
 
-    if (validated.instrument) {
-      processArgs.push('--instrument', validated.instrument);
-    }
-    if (validated.tradingsymbol) {
-      processArgs.push('--tradingsymbol', validated.tradingsymbol);
-    }
     if (validated.paper) {
       processArgs.push('--paper');
     }
@@ -447,7 +528,7 @@ app.post('/api/trading/start', (req, res) => {
     const result = startTradingProcess(processArgs);
 
     if (result.success) {
-      security.logSecurityEvent('TRADING_STARTED', req.ip, { instrument: validated.instrument });
+      security.logSecurityEvent('TRADING_STARTED', req.ip, { tradingsymbol: validated.tradingsymbol });
       res.json({ success: true, message: result.message, pid: result.pid });
     } else {
       res.status(400).json({ success: false, error: result.message });
@@ -485,17 +566,22 @@ app.post('/api/trading/restart', (req, res) => {
 
       // Wait 2 seconds before restarting
       setTimeout(() => {
-        const processArgs = [];
+        const instrumentToken = getInstrumentToken(validated.tradingsymbol);
+        if (!instrumentToken) {
+          log(`Instrument token not found for tradingsymbol: ${validated.tradingsymbol}. Cannot restart trading.`, 'ERROR');
+          return; // Cannot restart without instrument token
+        }
 
-        if (validated.instrument) processArgs.push('--instrument', validated.instrument);
-        if (validated.tradingsymbol) processArgs.push('--tradingsymbol', validated.tradingsymbol);
+        const processArgs = [];
+        processArgs.push('--instrument', instrumentToken);
+        processArgs.push('--tradingsymbol', validated.tradingsymbol);
         if (validated.paper) processArgs.push('--paper');
         if (validated.notimeexit) processArgs.push('--notimeexit');
 
         startTradingProcess(processArgs);
       }, 2000);
 
-      security.logSecurityEvent('TRADING_RESTARTED', req.ip, { instrument: validated.instrument });
+      security.logSecurityEvent('TRADING_RESTARTED', req.ip, { tradingsymbol: validated.tradingsymbol });
       res.json({ success: true, message: 'Trading process restarting...' });
     } else {
       res.status(400).json({ success: false, error: 'No process to restart' });
@@ -703,14 +789,18 @@ app.post('/api/backtest/run', security.backtestLimiter, (req, res) => {
   try {
     // Validate and sanitize input
     const validated = security.validateTradingParams(req.body);
+    const instrumentToken = getInstrumentToken(validated.tradingsymbol);
+
+    if (!instrumentToken) {
+      return res.status(400).json({ success: false, error: `Instrument token not found for tradingsymbol: ${validated.tradingsymbol}` });
+    }
 
     const processArgs = [];
-
-    if (validated.instrument) processArgs.push('--instrument', validated.instrument);
-    if (validated.tradingsymbol) processArgs.push('--tradingsymbol', validated.tradingsymbol);
+    processArgs.push('--instrument', instrumentToken);
+    processArgs.push('--tradingsymbol', validated.tradingsymbol);
     if (validated.notimeexit) processArgs.push('--notimeexit');
 
-    security.logSecurityEvent('BACKTEST_STARTED', req.ip, { instrument: validated.instrument });
+    security.logSecurityEvent('BACKTEST_STARTED', req.ip, { tradingsymbol: validated.tradingsymbol });
     log('Running backtest...', 'INFO');
 
     const backtestProcess = spawn('node', ['kite.js', ...processArgs], {
@@ -966,9 +1056,23 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`  GET  /api/positions             - Get open positions`);
   console.log(`\n`);
 
+  // Load instruments from JSON file
+  loadInstruments();
+  
+  // Resume trading if it was running before restart
+  resumeTradingIfRunning();
+
   // Start background monitoring
   startBackgroundMonitoring();
 });
+
+function resumeTradingIfRunning() {
+  const state = getTradingState();
+  if (state.isRunning && state.args.length > 0) {
+    log('Resuming previous trading session...', 'INFO');
+    startTradingProcess(state.args);
+  }
+}
 
 // Background monitoring state
 let enctokenValid = true;

@@ -4,6 +4,7 @@ import {
   ScrollView,
   StyleSheet,
   Alert,
+  Platform,
 } from 'react-native';
 import {
   Card,
@@ -22,9 +23,10 @@ import { COLORS, TIMEFRAMES, DEFAULT_PARAMS, TRADING_STATUS } from '../utils/con
 export default function TradingScreen() {
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [instruments, setInstruments] = useState([]);
 
   // Trading parameters
-  const [instrument, setInstrument] = useState('120395527'); // NIFTY BANK
+  const [tradingsymbol, setTradingsymbol] = useState('');
   const [capital, setCapital] = useState(DEFAULT_PARAMS.CAPITAL.toString());
   const [timeframe, setTimeframe] = useState(DEFAULT_PARAMS.TIMEFRAME);
   const [slTicks, setSlTicks] = useState(DEFAULT_PARAMS.SL_TICKS.toString());
@@ -37,6 +39,7 @@ export default function TradingScreen() {
 
   useEffect(() => {
     fetchStatus();
+    fetchInstruments();
   }, []);
 
   const fetchStatus = async () => {
@@ -48,13 +51,29 @@ export default function TradingScreen() {
     }
   };
 
+  const fetchInstruments = async () => {
+    try {
+      const response = await apiClient.getInstruments();
+      if (response.success && response.data.length > 0) {
+        setInstruments(response.data);
+        setTradingsymbol(response.data[0]); // Set default to the first one
+      }
+    } catch (error) {
+      console.error('Error fetching instruments:', error);
+      const errorMessage = `Failed to fetch instruments: ${error.message}`;
+      if (Platform.OS === 'web') {
+        window.alert(errorMessage);
+      } else {
+        Alert.alert('Error', errorMessage);
+      }
+    }
+  };
+
   const validateInputs = () => {
     const newErrors = {};
 
-    if (!instrument.trim()) {
-      newErrors.instrument = 'Instrument token is required';
-    } else if (isNaN(parseInt(instrument))) {
-      newErrors.instrument = 'Must be a valid number';
+    if (!tradingsymbol) {
+      newErrors.tradingsymbol = 'Trading Symbol is required';
     }
 
     if (!capital.trim()) {
@@ -87,126 +106,190 @@ export default function TradingScreen() {
 
   const handleStartTrading = async () => {
     if (!validateInputs()) {
-      Alert.alert('Validation Error', 'Please fix the errors before starting.');
+      if (Platform.OS === 'web') {
+        window.alert('Validation Error: Please fix the errors before starting.');
+      } else {
+        Alert.alert('Validation Error', 'Please fix the errors before starting.');
+      }
       return;
     }
 
-    Alert.alert(
-      'Start Trading?',
-      'Are you sure you want to start the trading bot with these parameters?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Start',
-          onPress: async () => {
-            setLoading(true);
-            try {
-              const params = {
-                instrument,
-                capital: parseFloat(capital),
-                timeframe,
-                sl_ticks: parseInt(slTicks),
-                target_ticks: parseInt(targetTicks),
-                risk_per_trade_pct: parseFloat(riskPct) / 100,
-              };
+    const start = async () => {
+      setLoading(true);
+      try {
+        const params = {
+          tradingsymbol,
+          capital: parseFloat(capital),
+          timeframe,
+          slTicks: parseInt(slTicks),
+          targetTicks: parseInt(targetTicks),
+          riskPercent: parseFloat(riskPct) / 100,
+        };
 
-              if (paper) params.paper = true;
-              if (notimeexit) params.notimeexit = true;
+        if (paper) params.paper = true;
+        if (notimeexit) params.notimeexit = true;
 
-              const response = await apiClient.startTrading(params);
+        const response = await apiClient.startTrading(params);
 
-              if (response.success) {
-                Alert.alert('Success', response.message);
-                fetchStatus();
-              } else {
-                Alert.alert('Error', response.error || 'Failed to start trading');
-              }
-            } catch (error) {
-              Alert.alert('Error', error.message);
-            } finally {
-              setLoading(false);
-            }
-          },
-        },
-      ]
-    );
+        if (response.success) {
+          if (Platform.OS === 'web') {
+            window.alert('Success: Trading started successfully.');
+          } else {
+            Alert.alert('Success', 'Trading started successfully.');
+          }
+          fetchStatus();
+        } else {
+          const errorMessage = response.error || 'Failed to start trading';
+          if (Platform.OS === 'web') {
+            window.alert(`Error: ${errorMessage}`);
+          } else {
+            Alert.alert('Error', errorMessage);
+          }
+        }
+      } catch (error) {
+        const errorMessage = error.message || 'An unknown error occurred.';
+        if (Platform.OS === 'web') {
+          window.alert(`Error: ${errorMessage}`);
+        } else {
+          Alert.alert('Error', errorMessage);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm('Start Trading?\nAre you sure you want to start the trading bot with these parameters?')) {
+        start();
+      }
+    } else {
+      Alert.alert(
+        'Start Trading?',
+        'Are you sure you want to start the trading bot with these parameters?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Start', onPress: start },
+        ]
+      );
+    }
   };
 
   const handleStopTrading = async () => {
-    Alert.alert(
-      'Stop Trading?',
-      'Are you sure you want to stop the trading bot?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Stop',
-          style: 'destructive',
-          onPress: async () => {
-            setLoading(true);
-            try {
-              const response = await apiClient.stopTrading();
-              if (response.success) {
-                Alert.alert('Success', response.message);
-                fetchStatus();
-              } else {
-                Alert.alert('Error', response.error || 'Failed to stop trading');
-              }
-            } catch (error) {
-              Alert.alert('Error', error.message);
-            } finally {
-              setLoading(false);
-            }
-          },
-        },
-      ]
-    );
+    const stop = async () => {
+      setLoading(true);
+      try {
+        const response = await apiClient.stopTrading();
+        if (response.success) {
+          if (Platform.OS === 'web') {
+            window.alert('Success: Trading stopped successfully.');
+          } else {
+            Alert.alert('Success', 'Trading stopped successfully.');
+          }
+          fetchStatus();
+        } else {
+          const errorMessage = response.error || 'Failed to stop trading';
+          if (Platform.OS === 'web') {
+            window.alert(`Error: ${errorMessage}`);
+          } else {
+            Alert.alert('Error', errorMessage);
+          }
+        }
+      } catch (error) {
+        const errorMessage = error.message || 'An unknown error occurred.';
+        if (Platform.OS === 'web') {
+          window.alert(`Error: ${errorMessage}`);
+        } else {
+          Alert.alert('Error', errorMessage);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm('Stop Trading?\nAre you sure you want to stop the trading bot?')) {
+        stop();
+      }
+    } else {
+      Alert.alert(
+        'Stop Trading?',
+        'Are you sure you want to stop the trading bot?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Stop', style: 'destructive', onPress: stop },
+        ]
+      );
+    }
   };
 
   const handleRestartTrading = async () => {
     if (!validateInputs()) {
-      Alert.alert('Validation Error', 'Please fix the errors before restarting.');
+      if (Platform.OS === 'web') {
+        window.alert('Validation Error: Please fix the errors before restarting.');
+      } else {
+        Alert.alert('Validation Error', 'Please fix the errors before restarting.');
+      }
       return;
     }
 
-    Alert.alert(
-      'Restart Trading?',
-      'This will stop the current bot and start a new one with updated parameters.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Restart',
-          onPress: async () => {
-            setLoading(true);
-            try {
-              const params = {
-                instrument,
-                capital: parseFloat(capital),
-                timeframe,
-                sl_ticks: parseInt(slTicks),
-                target_ticks: parseInt(targetTicks),
-                risk_per_trade_pct: parseFloat(riskPct) / 100,
-              };
+    const restart = async () => {
+      setLoading(true);
+      try {
+        const params = {
+          tradingsymbol,
+          capital: parseFloat(capital),
+          timeframe,
+          slTicks: parseInt(slTicks),
+          targetTicks: parseInt(targetTicks),
+          riskPercent: parseFloat(riskPct) / 100,
+        };
 
-              if (paper) params.paper = true;
-              if (notimeexit) params.notimeexit = true;
+        if (paper) params.paper = true;
+        if (notimeexit) params.notimeexit = true;
 
-              const response = await apiClient.restartTrading(params);
+        const response = await apiClient.restartTrading(params);
 
-              if (response.success) {
-                Alert.alert('Success', response.message);
-                fetchStatus();
-              } else {
-                Alert.alert('Error', response.error || 'Failed to restart trading');
-              }
-            } catch (error) {
-              Alert.alert('Error', error.message);
-            } finally {
-              setLoading(false);
-            }
-          },
-        },
-      ]
-    );
+        if (response.success) {
+          if (Platform.OS === 'web') {
+            window.alert('Success: Trading restarted successfully.');
+          } else {
+            Alert.alert('Success', 'Trading restarted successfully.');
+          }
+          fetchStatus();
+        } else {
+          const errorMessage = response.error || 'Failed to restart trading';
+          if (Platform.OS === 'web') {
+            window.alert(`Error: ${errorMessage}`);
+          } else {
+            Alert.alert('Error', errorMessage);
+          }
+        }
+      } catch (error) {
+        const errorMessage = error.message || 'An unknown error occurred.';
+        if (Platform.OS === 'web') {
+          window.alert(`Error: ${errorMessage}`);
+        } else {
+          Alert.alert('Error', errorMessage);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm('Restart Trading?\nThis will stop the current bot and start a new one with updated parameters.')) {
+        restart();
+      }
+    } else {
+      Alert.alert(
+        'Restart Trading?',
+        'This will stop the current bot and start a new one with updated parameters.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Restart', onPress: restart },
+        ]
+      );
+    }
   };
 
   const isRunning = status?.trading === TRADING_STATUS.RUNNING;
@@ -232,19 +315,22 @@ export default function TradingScreen() {
           <Title style={styles.cardTitle}>Trading Parameters</Title>
           <Divider style={styles.divider} />
 
-          <TextInput
-            label="Instrument Token"
-            value={instrument}
-            onChangeText={setInstrument}
-            mode="outlined"
-            keyboardType="numeric"
-            error={!!errors.instrument}
-            style={styles.input}
-          />
-          {errors.instrument && (
-            <HelperText type="error">{errors.instrument}</HelperText>
-          )}
-          <HelperText type="info">NIFTY BANK: 120395527, NIFTY: 256265</HelperText>
+          <View style={styles.pickerContainer}>
+            <Paragraph style={styles.pickerLabel}>Trading Symbol</Paragraph>
+            <Picker
+              selectedValue={tradingsymbol}
+              onValueChange={(itemValue) => setTradingsymbol(itemValue)}
+              style={styles.picker}
+              enabled={instruments.length > 0}
+            >
+              {instruments.map(symbol => (
+                <Picker.Item key={symbol} label={symbol} value={symbol} />
+              ))}
+            </Picker>
+            {errors.tradingsymbol && (
+              <HelperText type="error">{errors.tradingsymbol}</HelperText>
+            )}
+          </View>
 
           <TextInput
             label="Capital (₹)"

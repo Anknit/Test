@@ -182,25 +182,17 @@ function checkHttpsWarning() {
 function validateTradingParams(params) {
   const validated = {};
 
-  // Validate instrument (must be positive integer)
-  if (params.instrument) {
-    const inst = parseInt(params.instrument, 10);
-    if (isNaN(inst) || inst <= 0) {
-      throw new Error('Invalid instrument token. Must be a positive integer.');
-    }
-    validated.instrument = inst.toString();
-  }
-
   // Validate tradingsymbol (alphanumeric and common symbols only)
-  if (params.tradingsymbol) {
-    if (!/^[A-Z0-9]+$/.test(params.tradingsymbol)) {
-      throw new Error('Invalid trading symbol. Alphanumeric characters only.');
-    }
-    if (params.tradingsymbol.length > 50) {
-      throw new Error('Trading symbol too long. Maximum 50 characters.');
-    }
-    validated.tradingsymbol = params.tradingsymbol;
+  if (!params.tradingsymbol) {
+    throw new Error('Trading symbol is required.');
   }
+  if (typeof params.tradingsymbol !== 'string') {
+    throw new Error('Invalid trading symbol. Must be a string.');
+  }
+  if (params.tradingsymbol.length > 50) {
+    throw new Error('Trading symbol too long. Maximum 50 characters.');
+  }
+  validated.tradingsymbol = params.tradingsymbol;
 
   // Validate numeric parameters
   const numericParams = ['capital', 'timeframe', 'slTicks', 'targetTicks', 'riskPercent'];
@@ -434,7 +426,6 @@ function configureCors() {
     origin: (origin, callback) => {
       // Allow requests with no origin (like mobile apps or curl requests)
       if (!origin) return callback(null, true);
-
       if (allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {

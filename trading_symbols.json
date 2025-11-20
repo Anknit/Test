@@ -1,0 +1,32 @@
+[
+    {
+        "id": "MCX:120395527",
+        "weight": 1,
+        "note": null,
+        "tradingsymbol": "GOLDM25DECFUT",
+        "instrument_token": 120395527,
+        "segment": "MCX-FUT",
+        "exchange": "MCX",
+        "expiry": "2025-12-05"
+    },
+    {
+        "id": "MCX:121031431",
+        "weight": 5,
+        "note": null,
+        "tradingsymbol": "GOLDM26JANFUT",
+        "instrument_token": 121031431,
+        "segment": "MCX-FUT",
+        "exchange": "MCX",
+        "expiry": "2026-01-05"
+    },
+    {
+        "id": "MCX:121031687",
+        "weight": 6,
+        "note": null,
+        "tradingsymbol": "GOLDM26FEBFUT",
+        "instrument_token": 121031687,
+        "segment": "MCX-FUT",
+        "exchange": "MCX",
+        "expiry": "2026-02-05"
+    }
+]

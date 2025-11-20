@@ -23,6 +23,7 @@ export const API_ENDPOINTS = {
   BACKTEST_RESULTS: '/api/backtest/results',
   CACHE: '/api/cache',
   CACHE_CLEAR: '/api/cache/clear',
+  INSTRUMENTS: '/api/instruments',
   EMAIL_CONFIG: '/api/email/config',
   EMAIL_STATUS: '/api/email/status',
   EMAIL_TEST: '/api/email/test',
