@@ -5,7 +5,7 @@ Kite Web Backtest & Live Trading (v2)
 - Adds: instruments CSV lookup, paper-mode simulation, and an order-monitor that cancels opposite leg on fill
 
 Dependencies:
-  npm install axios puppeteer dayjs csv-parse minimist
+  npm install axios puppeteer dayjs csv-parse
 
 Run examples:
   PAPER mode (safe simulation) - First run fetches and caches data:
@@ -21,9 +21,6 @@ Run examples:
   Force refresh cache (ignore cached data and fetch fresh):
     ENCTOKEN="xxx" node kite.js --instrument 120395527 --days 10 --paper --refresh
 
-  Auto-extract enctoken from existing Chrome profile (profile must be logged-in to Kite):
-    node kite.js --instrument 123456 --days 10 --profile "~/.config/google-chrome/Default"
-
   Cached data is stored in ./cache/ directory for instant reuse.
 
 Security: Do NOT share your enctoken. Use paper mode for testing before live.
@@ -31,8 +28,6 @@ Security: Do NOT share your enctoken. Use paper mode for testing before live.
 
 // HTTP client for making API requests
 const axios = require('axios');
-// Browser automation library (for extracting enctoken from Chrome profile)
-const puppeteer = require('puppeteer');
 // Date/time manipulation library
 const dayjs = require('dayjs');
 // Dayjs plugins for timezone handling
@@ -1035,25 +1030,26 @@ function gridSearch(candles, htCandles, paramGrid) {
  *   Paper mode: node kite.js --instrument 120395527 --days 10 --paper
  *   Live mode:  ENCTOKEN="xxx" node kite.js --instrument 120395527 --tradingsymbol GOLDM25FEBFUT
  */
-async function main() {
+async function main(argv = null) {
   // Parse command-line arguments
-  const argv = require('minimist')(process.argv.slice(2));
+  if (!argv) {
+    argv = process.argv.slice(2).reduce((acc, arg) => {
+      if (arg.startsWith('--')) {
+        const [key, value] = arg.substring(2).split('=');
+        acc[key] = value === undefined ? true : value;
+      }
+      return acc;
+    }, {});
+  }
   const instrument = argv.instrument || argv.i;  // Instrument token (numeric ID)
   const days = Number(argv.days || 10);          // Days of historical data
   const interval = argv.interval || '2minute';   // Candle interval
-  const profile = argv.profile;                  // Chrome profile path (for auto-extract)
   const paper = argv.paper || argv.p || false;   // Paper trading mode flag
   const refresh = argv.refresh || argv.r || false;  // Force refresh cache (ignore cached data)
   const noTimeExit = argv.notimeexit || argv.nte || false;  // Disable time-based exit (--notimeexit or --nte)
 
   // Get authentication token from env var, CLI arg, or auto-extract from Chrome
   let enctoken = process.env.ENCTOKEN || argv.enctoken;
-  if (!enctoken && profile) {
-    console.log('Attempting to auto-extract enctoken from profile...', profile);
-    enctoken = await getEnctokenFromProfile(profile, false);
-    if (!enctoken) console.warn('Auto-extract did not find enctoken. You can pass ENCTOKEN env var or --enctoken.');
-    else console.log('Captured enctoken (use it securely):', enctoken.slice(0, 12) + '...');
-  }
 
   // Validation: enctoken required for live mode
   if (!enctoken && !paper) {
@@ -1273,3 +1269,14 @@ if (require.main === module) {
     process.exit(1);  // Exit with error code on failure
   });
 }
+
+module.exports = {
+  fetchHistorical,
+  generateSignals,
+  backtestSameDay,
+  placeEntryWithSLTarget,
+  fetchOpenOrders,
+  cancelOrder,
+  orderMonitorLoop,
+  main
+};

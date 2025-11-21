@@ -4,13 +4,14 @@
 require('dotenv').config();
 
 const express = require('express');
-const { spawn } = require('child_process');
+
 const fs = require('fs');
 const path = require('path');
 const dayjs = require('dayjs');
 const axios = require('axios');
 const nodemailer = require('nodemailer');
 const os = require('os');
+const kite = require('./kite.js');
 
 // Import security middleware
 const security = require('./security');
@@ -69,7 +70,6 @@ security.ensureSecurePermissions(ENCTOKEN_FILE);
 security.ensureSecurePermissions(EMAIL_CONFIG_FILE);
 
 // Global state
-let tradingProcess = null;
 let processStartTime = null;
 let processRestartCount = 0;
 let lastRestartTime = null;
@@ -269,91 +269,8 @@ async function validateEnctokenWithAPI(enctoken) {
   }
 }
 
-// Start trading process
-function startTradingProcess(args = []) {
-  if (tradingProcess) {
-    return { success: false, message: 'Trading process already running' };
-  }
 
-  const enctoken = getEnctoken();
-  if (!validateEnctoken(enctoken)) {
-    return { success: false, message: 'Invalid or missing enctoken' };
-  }
 
-  log('Starting trading process...', 'INFO');
-
-  try {
-    tradingProcess = spawn('node', ['kite.js', ...args], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, ENCTOKEN: enctoken }
-    });
-
-    processStartTime = new Date();
-    saveTradingState({ isRunning: true, args });
-
-    tradingProcess.stdout.on('data', (data) => {
-      const output = data.toString();
-      log(`[TRADING] ${output.trim()}`, 'INFO');
-    });
-
-    tradingProcess.stderr.on('data', (data) => {
-      const output = data.toString();
-      log(`[TRADING] ${output.trim()}`, 'ERROR');
-    });
-
-    tradingProcess.on('exit', (code, signal) => {
-      log(`Trading process exited: code=${code}, signal=${signal}`, 'WARN');
-      tradingProcess = null;
-      processStartTime = null;
-      saveTradingState({ isRunning: false, args: [] });
-
-      if (code !== 0 && signal !== 'SIGTERM' && signal !== 'SIGINT') {
-        processRestartCount++;
-        lastRestartTime = new Date();
-      }
-    });
-
-    tradingProcess.on('error', (err) => {
-      log(`Failed to start trading process: ${err.message}`, 'ERROR');
-      tradingProcess = null;
-      processStartTime = null;
-      saveTradingState({ isRunning: false, args: [] });
-    });
-
-    return { success: true, message: 'Trading process started', pid: tradingProcess.pid };
-  } catch (err) {
-    log(`Error starting process: ${err.message}`, 'ERROR');
-    return { success: false, message: err.message };
-  }
-}
-
-// Stop trading process
-function stopTradingProcess() {
-  if (!tradingProcess) {
-    saveTradingState({ isRunning: false, args: [] }); // Ensure state is cleared
-    return { success: false, message: 'No trading process running' };
-  }
-
-  log('Stopping trading process...', 'INFO');
-  saveTradingState({ isRunning: false, args: [] });
-
-  try {
-    tradingProcess.kill('SIGTERM');
-
-    // Force kill after 10 seconds if not stopped
-    setTimeout(() => {
-      if (tradingProcess) {
-        log('Force killing trading process', 'WARN');
-        tradingProcess.kill('SIGKILL');
-      }
-    }, 10000);
-
-    return { success: true, message: 'Trading process stop signal sent' };
-  } catch (err) {
-    log(`Error stopping process: ${err.message}`, 'ERROR');
-    return { success: false, message: err.message };
-  }
-}
 
 // Fetch enctoken using Kite API endpoints directly
 async function fetchEnctokenViaLogin(userId, password, totp) {
@@ -442,14 +359,14 @@ async function fetchEnctokenViaLogin(userId, password, totp) {
 
 // Get process status
 function getProcessStatus() {
-  const isRunning = tradingProcess !== null;
+  const isRunning = getTradingState().isRunning;
   const status = {
     trading: isRunning ? 'running' : 'stopped',
     process: {
-      pid: isRunning ? tradingProcess.pid : null,
+      pid: null,
       startTime: processStartTime,
       uptime: processStartTime ? Math.floor((new Date() - processStartTime) / 1000) : null,
-      memory: isRunning ? `${(process.memoryUsage().rss / 1024 / 1024).toFixed(2)} MB` : null,
+      memory: null,
     },
     server: {
       hostname: os.hostname(),
@@ -507,32 +424,30 @@ app.post('/api/trading/start', (req, res) => {
       return res.status(400).json({ success: false, error: `Instrument token not found for tradingsymbol: ${validated.tradingsymbol}` });
     }
 
-    const processArgs = [];
-    processArgs.push('--instrument', instrumentToken);
-    processArgs.push('--tradingsymbol', validated.tradingsymbol);
+    const args = {
+      instrument: instrumentToken,
+      tradingsymbol: validated.tradingsymbol,
+      paper: validated.paper,
+      notimeexit: validated.notimeexit,
+      capital: validated.capital,
+      timeframe: validated.timeframe,
+      'sl-ticks': validated.slTicks,
+      'target-ticks': validated.targetTicks,
+      'risk-percent': validated.riskPercent,
+    };
 
-    if (validated.paper) {
-      processArgs.push('--paper');
-    }
-    if (validated.notimeexit) {
-      processArgs.push('--notimeexit');
-    }
+    saveTradingState({ isRunning: true, args });
+    kite.main(args).then(() => {
+      log('Trading process finished.', 'INFO');
+      saveTradingState({ isRunning: false, args: [] });
+    }).catch(err => {
+      log(`Trading process failed: ${err.message}`, 'ERROR');
+      saveTradingState({ isRunning: false, args: [] });
+    });
 
-    // Add trading parameters if provided
-    if (validated.capital) processArgs.push('--capital', validated.capital.toString());
-    if (validated.timeframe) processArgs.push('--timeframe', validated.timeframe.toString());
-    if (validated.slTicks) processArgs.push('--sl-ticks', validated.slTicks.toString());
-    if (validated.targetTicks) processArgs.push('--target-ticks', validated.targetTicks.toString());
-    if (validated.riskPercent) processArgs.push('--risk-percent', validated.riskPercent.toString());
+    security.logSecurityEvent('TRADING_STARTED', req.ip, { tradingsymbol: validated.tradingsymbol });
+    res.json({ success: true, message: 'Trading process started' });
 
-    const result = startTradingProcess(processArgs);
-
-    if (result.success) {
-      security.logSecurityEvent('TRADING_STARTED', req.ip, { tradingsymbol: validated.tradingsymbol });
-      res.json({ success: true, message: result.message, pid: result.pid });
-    } else {
-      res.status(400).json({ success: false, error: result.message });
-    }
   } catch (err) {
     security.sendErrorResponse(err, res, 400);
   }
@@ -541,14 +456,10 @@ app.post('/api/trading/start', (req, res) => {
 // Stop trading
 app.post('/api/trading/stop', (req, res) => {
   try {
-    const result = stopTradingProcess();
-
-    if (result.success) {
-      security.logSecurityEvent('TRADING_STOPPED', req.ip);
-      res.json({ success: true, message: result.message });
-    } else {
-      res.status(400).json({ success: false, error: result.message });
-    }
+    security.logSecurityEvent('TRADING_STOPPED', req.ip);
+    log('Trading stopped via API.', 'INFO');
+    saveTradingState({ isRunning: false, args: [] });
+    res.json({ success: true, message: 'Trading stopped' });
   } catch (err) {
     security.sendErrorResponse(err, res, 400);
   }
@@ -559,33 +470,37 @@ app.post('/api/trading/restart', (req, res) => {
   try {
     // Validate and sanitize input
     const validated = security.validateTradingParams(req.body);
+    const instrumentToken = getInstrumentToken(validated.tradingsymbol);
 
-    // Stop first
-    if (tradingProcess) {
-      stopTradingProcess();
-
-      // Wait 2 seconds before restarting
-      setTimeout(() => {
-        const instrumentToken = getInstrumentToken(validated.tradingsymbol);
-        if (!instrumentToken) {
-          log(`Instrument token not found for tradingsymbol: ${validated.tradingsymbol}. Cannot restart trading.`, 'ERROR');
-          return; // Cannot restart without instrument token
-        }
-
-        const processArgs = [];
-        processArgs.push('--instrument', instrumentToken);
-        processArgs.push('--tradingsymbol', validated.tradingsymbol);
-        if (validated.paper) processArgs.push('--paper');
-        if (validated.notimeexit) processArgs.push('--notimeexit');
-
-        startTradingProcess(processArgs);
-      }, 2000);
-
-      security.logSecurityEvent('TRADING_RESTARTED', req.ip, { tradingsymbol: validated.tradingsymbol });
-      res.json({ success: true, message: 'Trading process restarting...' });
-    } else {
-      res.status(400).json({ success: false, error: 'No process to restart' });
+    if (!instrumentToken) {
+      return res.status(400).json({ success: false, error: `Instrument token not found for tradingsymbol: ${validated.tradingsymbol}` });
     }
+
+    const args = {
+      instrument: instrumentToken,
+      tradingsymbol: validated.tradingsymbol,
+      paper: validated.paper,
+      notimeexit: validated.notimeexit,
+      capital: validated.capital,
+      timeframe: validated.timeframe,
+      'sl-ticks': validated.slTicks,
+      'target-ticks': validated.targetTicks,
+      'risk-percent': validated.riskPercent,
+    };
+
+    security.logSecurityEvent('TRADING_RESTARTED', req.ip, { tradingsymbol: validated.tradingsymbol });
+    log('Trading restarting via API.', 'INFO');
+    
+    saveTradingState({ isRunning: true, args });
+    kite.main(args).then(() => {
+      log('Trading process finished.', 'INFO');
+      saveTradingState({ isRunning: false, args: [] });
+    }).catch(err => {
+      log(`Trading process failed: ${err.message}`, 'ERROR');
+      saveTradingState({ isRunning: false, args: [] });
+    });
+
+    res.json({ success: true, message: 'Trading process restarting...' });
   } catch (err) {
     security.sendErrorResponse(err, res, 400);
   }
@@ -785,7 +700,7 @@ app.get('/api/backtest/results', (req, res) => {
 });
 
 // Run backtest (with backtest rate limiting)
-app.post('/api/backtest/run', security.backtestLimiter, (req, res) => {
+app.post('/api/backtest/run', security.backtestLimiter, async (req, res) => {
   try {
     // Validate and sanitize input
     const validated = security.validateTradingParams(req.body);
@@ -795,51 +710,36 @@ app.post('/api/backtest/run', security.backtestLimiter, (req, res) => {
       return res.status(400).json({ success: false, error: `Instrument token not found for tradingsymbol: ${validated.tradingsymbol}` });
     }
 
-    const processArgs = [];
-    processArgs.push('--instrument', instrumentToken);
-    processArgs.push('--tradingsymbol', validated.tradingsymbol);
-    if (validated.notimeexit) processArgs.push('--notimeexit');
+    const args = {
+      instrument: instrumentToken,
+      tradingsymbol: validated.tradingsymbol,
+      notimeexit: validated.notimeexit,
+      days: 10, // default days for backtest
+      paper: true // backtest is always in paper mode
+    };
 
     security.logSecurityEvent('BACKTEST_STARTED', req.ip, { tradingsymbol: validated.tradingsymbol });
     log('Running backtest...', 'INFO');
 
-    const backtestProcess = spawn('node', ['kite.js', ...processArgs], {
-      stdio: 'pipe',
-      env: { ...process.env, ENCTOKEN: getEnctoken() }
-    });
+    await kite.main(args);
 
-    let output = '';
-    let errorOutput = '';
-
-    backtestProcess.stdout.on('data', (data) => {
-      output += data.toString();
-    });
-
-    backtestProcess.stderr.on('data', (data) => {
-      errorOutput += data.toString();
-    });
-
-    backtestProcess.on('close', (code) => {
-      if (code === 0) {
-        security.logSecurityEvent('BACKTEST_COMPLETED', req.ip);
-        log('Backtest completed successfully', 'INFO');
-        res.json({
-          success: true,
-          message: 'Backtest completed',
-          output: output,
-          exitCode: code
-        });
-      } else {
-        log(`Backtest failed with code ${code}`, 'ERROR');
-        res.status(500).json({
-          success: false,
-          error: 'Backtest failed',
-          output: output,
-          errorOutput: errorOutput,
-          exitCode: code
-        });
-      }
-    });
+    const resultsFile = path.join(__dirname, 'backtest_results.json');
+    if (fs.existsSync(resultsFile)) {
+      const results = JSON.parse(fs.readFileSync(resultsFile, 'utf8'));
+      security.logSecurityEvent('BACKTEST_COMPLETED', req.ip);
+      log('Backtest completed successfully', 'INFO');
+      res.json({
+        success: true,
+        message: 'Backtest completed',
+        data: results
+      });
+    } else {
+      log(`Backtest failed: results file not found`, 'ERROR');
+      res.status(500).json({
+        success: false,
+        error: 'Backtest failed',
+      });
+    }
   } catch (err) {
     security.sendErrorResponse(err, res, 400);
   }
@@ -1059,21 +959,12 @@ app.listen(PORT, '0.0.0.0', () => {
   // Load instruments from JSON file
   loadInstruments();
   
-  // Resume trading if it was running before restart
+  // Resume trading if it was running before
   resumeTradingIfRunning();
 
   // Start background monitoring
   startBackgroundMonitoring();
 });
-
-function resumeTradingIfRunning() {
-  const state = getTradingState();
-  if (state.isRunning && state.args.length > 0) {
-    log('Resuming previous trading session...', 'INFO');
-    startTradingProcess(state.args);
-  }
-}
-
 // Background monitoring state
 let enctokenValid = true;
 let lastEnctokenCheck = null;
@@ -1135,11 +1026,6 @@ async function checkEnctokenAndPositions() {
         enctokenValid = false;
         log('Enctoken validation failed! Token may be expired.', 'ERROR');
 
-        // Stop trading if running
-        if (tradingProcess) {
-          log('Stopping trading due to invalid enctoken', 'WARN');
-          stopTradingProcess();
-        }
 
         // Check if we had open positions when token was last valid
         const hasOpenPositions = lastKnownPositions.length > 0;
@@ -1242,6 +1128,20 @@ async function cleanOldCache() {
   }
 }
 
+function resumeTradingIfRunning() {
+  const state = getTradingState();
+  if (state.isRunning && state.args) {
+    log('Resuming previous trading session...', 'INFO');
+    kite.main(state.args).then(() => {
+      log('Resumed trading process finished.', 'INFO');
+      saveTradingState({ isRunning: false, args: [] });
+    }).catch(err => {
+      log(`Resumed trading process failed: ${err.message}`, 'ERROR');
+      saveTradingState({ isRunning: false, args: [] });
+    });
+  }
+}
+
 // Start background monitoring
 function startBackgroundMonitoring() {
   log('Starting background monitoring...', 'INFO');
@@ -1276,17 +1176,11 @@ function stopBackgroundMonitoring() {
 process.on('SIGTERM', () => {
   log('Received SIGTERM, shutting down gracefully...', 'INFO');
   stopBackgroundMonitoring();
-  if (tradingProcess) {
-    stopTradingProcess();
-  }
   process.exit(0);
 });
 
 process.on('SIGINT', () => {
   log('Received SIGINT, shutting down gracefully...', 'INFO');
   stopBackgroundMonitoring();
-  if (tradingProcess) {
-    stopTradingProcess();
-  }
   process.exit(0);
 });
