@@ -14,7 +14,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 24.11.1
 
       - name: Prepare SSH key
         run: |
@@ -48,6 +48,23 @@ jobs:
             export NVM_DIR="$HOME/.nvm"
             [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
             [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+            
+            # Verify Node.js and npm versions
+            echo "Verifying Node.js version..."
+            node_version=$(node -v | cut -dv -f2)
+            npm_version=$(npm -v)
+            echo "Node.js version: $node_version (required: 24.11.1)"
+            echo "npm version: $npm_version (required: 11.6.2)"
+            
+            if [ "$node_version" != "24.11.1" ]; then
+              echo "ERROR: Node.js version mismatch. Expected 24.11.1 but got $node_version"
+              exit 1
+            fi
+            
+            if [ "$npm_version" != "11.6.2" ]; then
+              echo "ERROR: npm version mismatch. Expected 11.6.2 but got $npm_version"
+              exit 1
+            fi
             
             cd ~/app
             chmod +x ./deploy.sh || true
