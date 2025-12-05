@@ -46,9 +46,9 @@ jobs:
             bash << 'EOF'
             set -e
             
-            # Use the exact nvm installation path for Node.js 24.11.1
-            NODE_PATH="$HOME/.nvm/versions/node/v24.11.1/bin/node"
-            NPM_PATH="$HOME/.nvm/versions/node/v24.11.1/bin/npm"
+            # Use absolute path for Node.js 24.11.1 (ubuntu user on Oracle VM)
+            NODE_PATH="/home/ubuntu/.nvm/versions/node/v24.11.1/bin/node"
+            NPM_PATH="/home/ubuntu/.nvm/versions/node/v24.11.1/bin/npm"
             
             # Verify node and npm exist
             if [ ! -f "$NODE_PATH" ]; then

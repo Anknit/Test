@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Use the exact nvm installation path for Node.js 24.11.1
-NODE_PATH="$HOME/.nvm/versions/node/v24.11.1/bin/node"
-NPM_PATH="$HOME/.nvm/versions/node/v24.11.1/bin/npm"
+# Use absolute path for Node.js 24.11.1 (ubuntu user on Oracle VM)
+NODE_PATH="/home/ubuntu/.nvm/versions/node/v24.11.1/bin/node"
+NPM_PATH="/home/ubuntu/.nvm/versions/node/v24.11.1/bin/npm"
 
 # Verify node and npm exist
 if [ ! -f "$NODE_PATH" ]; then
@@ -49,10 +49,10 @@ echo "Deploying app in $APP_DIR"
 # Install dependencies (production)
 if [ -f package-lock.json ]; then
   echo "Installing dependencies via npm ci (production)..."
-  npm ci --only=production
+  "$NPM" ci --only=production
 else
   echo "Installing dependencies via npm install (production)..."
-  npm install --only=production
+  "$NPM" install --only=production
 fi
 
 # Ensure runtime directories exist
@@ -68,7 +68,8 @@ if [ -f .env.email ]; then
 fi
 
 # Reload or start pm2 using ecosystem.config.js (preferred)
-if command -v pm2 >/dev/null 2>&1; then
+PM2_PATH="$(dirname "$NODE_PATH")/pm2"
+if [ -f "$PM2_PATH" ] || command -v pm2 >/dev/null 2>&1; then
   if [ -f ecosystem.config.js ]; then
     echo "Reloading pm2 ecosystem..."
     pm2 reload ecosystem.config.js --env "${PM2_ENV:-production}" || pm2 start ecosystem.config.js --env "${PM2_ENV:-production}"
@@ -77,7 +78,7 @@ if command -v pm2 >/dev/null 2>&1; then
     pm2 reload api-server || pm2 start api-server.js --name kite-api --env "${PM2_ENV:-production}"
   fi
 else
-  echo "pm2 not found. Please install pm2 globally on the server: npm install -g pm2"
+  echo "pm2 not found. Please install pm2 globally on the server: $NPM install -g pm2"
   exit 1
 fi
 
