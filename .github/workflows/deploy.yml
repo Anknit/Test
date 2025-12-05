@@ -43,33 +43,50 @@ jobs:
           port: ${{ secrets.ORACLE_SSH_PORT || '22' }}
           key: ${{ secrets.ORACLE_SSH_KEY }}
           script: |
-            bash --login << 'EOF'
+            bash << 'EOF'
             set -e
             
-            # Source bashrc to load nvm
-            if [ -f ~/.bashrc ]; then
-              source ~/.bashrc
+            # Find node and npm using different possible paths
+            NODE_PATH=""
+            NPM_PATH=""
+            
+            # Try to find node in nvm directory
+            if [ -d "$HOME/.nvm/versions/node" ]; then
+              # Get the highest version installed
+              NODE_DIR=$(ls -d $HOME/.nvm/versions/node/v* 2>/dev/null | sort -V | tail -1)
+              if [ -n "$NODE_DIR" ]; then
+                NODE_PATH="$NODE_DIR/bin/node"
+                NPM_PATH="$NODE_DIR/bin/npm"
+              fi
             fi
             
-            # Load nvm explicitly
-            export NVM_DIR="$HOME/.nvm"
-            if [ -s "$NVM_DIR/nvm.sh" ]; then
-              . "$NVM_DIR/nvm.sh"
+            # Fall back to system node if nvm version not found
+            if [ -z "$NODE_PATH" ] || [ ! -f "$NODE_PATH" ]; then
+              NODE_PATH=$(which node 2>/dev/null || echo "")
             fi
             
-            # Debug: Check if node is available
-            echo "NVM_DIR: $NVM_DIR"
-            echo "PATH: $PATH"
-            which node || echo "WARNING: node not found"
-            which npm || echo "WARNING: npm not found"
+            if [ -z "$NPM_PATH" ] || [ ! -f "$NPM_PATH" ]; then
+              NPM_PATH=$(which npm 2>/dev/null || echo "")
+            fi
             
-            # Use nvm to set the correct version
-            nvm use 24.11.1 || true
+            # Verify we found node and npm
+            if [ -z "$NODE_PATH" ] || [ ! -f "$NODE_PATH" ]; then
+              echo "ERROR: Could not find node executable"
+              exit 1
+            fi
             
-            # Verify Node.js and npm versions
-            echo "Verifying Node.js version..."
-            node_version=$(node -v | cut -dv -f2)
-            npm_version=$(npm -v)
+            if [ -z "$NPM_PATH" ] || [ ! -f "$NPM_PATH" ]; then
+              echo "ERROR: Could not find npm executable"
+              exit 1
+            fi
+            
+            echo "Found node at: $NODE_PATH"
+            echo "Found npm at: $NPM_PATH"
+            
+            # Verify versions
+            node_version=$("$NODE_PATH" -v | cut -dv -f2)
+            npm_version=$("$NPM_PATH" -v)
+            
             echo "Node.js version: $node_version (required: 24.11.1)"
             echo "npm version: $npm_version (required: 11.6.2)"
             
@@ -86,5 +103,6 @@ jobs:
             cd ~/app
             chmod +x ./deploy.sh || true
             export PM2_ENV="${{ secrets.PM2_ENV || 'production' }}"
+            export PATH="$(dirname "$NODE_PATH"):$PATH"
             ./deploy.sh
             EOF

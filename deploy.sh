@@ -1,27 +1,55 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Source bashrc to load nvm and other shell configurations
-if [ -f ~/.bashrc ]; then
-  source ~/.bashrc
+# Find node and npm executables - nvm installs them under ~/.nvm/versions/node/
+NODE_PATH=""
+NPM_PATH=""
+
+# Look for node in nvm directory (most recent version)
+if [ -d "$HOME/.nvm/versions/node" ]; then
+  NODE_DIR=$(ls -d "$HOME/.nvm/versions/node"/v* 2>/dev/null | sort -V | tail -1)
+  if [ -n "$NODE_DIR" ] && [ -d "$NODE_DIR" ]; then
+    NODE_PATH="$NODE_DIR/bin/node"
+    NPM_PATH="$NODE_DIR/bin/npm"
+  fi
 fi
 
-# Load nvm to ensure npm is available
-export NVM_DIR="${HOME}/.nvm"
-if [ -s "$NVM_DIR/nvm.sh" ]; then
-  . "$NVM_DIR/nvm.sh"
-fi
-if [ -s "$NVM_DIR/bash_completion" ]; then
-  . "$NVM_DIR/bash_completion"
+# Fall back to system node if nvm version not found
+if [ -z "$NODE_PATH" ] || [ ! -f "$NODE_PATH" ]; then
+  NODE_PATH=$(which node 2>/dev/null || echo "")
 fi
 
-# Use the correct Node.js version
-nvm use 24.11.1 || true
+if [ -z "$NPM_PATH" ] || [ ! -f "$NPM_PATH" ]; then
+  NPM_PATH=$(which npm 2>/dev/null || echo "")
+fi
+
+# Verify we found node and npm
+if [ -z "$NODE_PATH" ] || [ ! -f "$NODE_PATH" ]; then
+  echo "ERROR: Could not find node executable at $NODE_PATH"
+  echo "Checked: ~/.nvm/versions/node/*/bin/node and system PATH"
+  exit 1
+fi
+
+if [ -z "$NPM_PATH" ] || [ ! -f "$NPM_PATH" ]; then
+  echo "ERROR: Could not find npm executable at $NPM_PATH"
+  exit 1
+fi
+
+# Export the paths for use in this script
+export NODE="$NODE_PATH"
+export NPM="$NPM_PATH"
+
+# Add to PATH for subprocesses
+export PATH="$(dirname "$NODE_PATH"):$PATH"
 
 # Verify versions
-node_version=$(node -v | cut -dv -f2)
-npm_version=$(npm -v)
-echo "Using Node.js v${node_version} and npm ${npm_version}"
+node_version=$("$NODE" -v | cut -dv -f2)
+npm_version=$("$NPM" -v)
+
+echo "Using Node.js from: $NODE_PATH"
+echo "Using npm from: $NPM_PATH"
+echo "Node.js version: v${node_version}"
+echo "npm version: ${npm_version}"
 
 if [ "$node_version" != "24.11.1" ]; then
   echo "WARNING: Node.js version mismatch. Expected 24.11.1 but got $node_version"
