@@ -46,42 +46,23 @@ jobs:
             bash << 'EOF'
             set -e
             
-            # Find node and npm using different possible paths
-            NODE_PATH=""
-            NPM_PATH=""
+            # Use the exact nvm installation path for Node.js 24.11.1
+            NODE_PATH="$HOME/.nvm/versions/node/v24.11.1/bin/node"
+            NPM_PATH="$HOME/.nvm/versions/node/v24.11.1/bin/npm"
             
-            # Try to find node in nvm directory
-            if [ -d "$HOME/.nvm/versions/node" ]; then
-              # Get the highest version installed
-              NODE_DIR=$(ls -d $HOME/.nvm/versions/node/v* 2>/dev/null | sort -V | tail -1)
-              if [ -n "$NODE_DIR" ]; then
-                NODE_PATH="$NODE_DIR/bin/node"
-                NPM_PATH="$NODE_DIR/bin/npm"
-              fi
-            fi
-            
-            # Fall back to system node if nvm version not found
-            if [ -z "$NODE_PATH" ] || [ ! -f "$NODE_PATH" ]; then
-              NODE_PATH=$(which node 2>/dev/null || echo "")
-            fi
-            
-            if [ -z "$NPM_PATH" ] || [ ! -f "$NPM_PATH" ]; then
-              NPM_PATH=$(which npm 2>/dev/null || echo "")
-            fi
-            
-            # Verify we found node and npm
-            if [ -z "$NODE_PATH" ] || [ ! -f "$NODE_PATH" ]; then
-              echo "ERROR: Could not find node executable"
+            # Verify node and npm exist
+            if [ ! -f "$NODE_PATH" ]; then
+              echo "ERROR: Node.js not found at $NODE_PATH"
               exit 1
             fi
             
-            if [ -z "$NPM_PATH" ] || [ ! -f "$NPM_PATH" ]; then
-              echo "ERROR: Could not find npm executable"
+            if [ ! -f "$NPM_PATH" ]; then
+              echo "ERROR: npm not found at $NPM_PATH"
               exit 1
             fi
             
-            echo "Found node at: $NODE_PATH"
-            echo "Found npm at: $NPM_PATH"
+            echo "Using Node.js: $NODE_PATH"
+            echo "Using npm: $NPM_PATH"
             
             # Verify versions
             node_version=$("$NODE_PATH" -v | cut -dv -f2)

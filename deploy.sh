@@ -1,62 +1,41 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Find node and npm executables - nvm installs them under ~/.nvm/versions/node/
-NODE_PATH=""
-NPM_PATH=""
+# Use the exact nvm installation path for Node.js 24.11.1
+NODE_PATH="$HOME/.nvm/versions/node/v24.11.1/bin/node"
+NPM_PATH="$HOME/.nvm/versions/node/v24.11.1/bin/npm"
 
-# Look for node in nvm directory (most recent version)
-if [ -d "$HOME/.nvm/versions/node" ]; then
-  NODE_DIR=$(ls -d "$HOME/.nvm/versions/node"/v* 2>/dev/null | sort -V | tail -1)
-  if [ -n "$NODE_DIR" ] && [ -d "$NODE_DIR" ]; then
-    NODE_PATH="$NODE_DIR/bin/node"
-    NPM_PATH="$NODE_DIR/bin/npm"
-  fi
-fi
-
-# Fall back to system node if nvm version not found
-if [ -z "$NODE_PATH" ] || [ ! -f "$NODE_PATH" ]; then
-  NODE_PATH=$(which node 2>/dev/null || echo "")
-fi
-
-if [ -z "$NPM_PATH" ] || [ ! -f "$NPM_PATH" ]; then
-  NPM_PATH=$(which npm 2>/dev/null || echo "")
-fi
-
-# Verify we found node and npm
-if [ -z "$NODE_PATH" ] || [ ! -f "$NODE_PATH" ]; then
-  echo "ERROR: Could not find node executable at $NODE_PATH"
-  echo "Checked: ~/.nvm/versions/node/*/bin/node and system PATH"
+# Verify node and npm exist
+if [ ! -f "$NODE_PATH" ]; then
+  echo "ERROR: Node.js not found at $NODE_PATH"
   exit 1
 fi
 
-if [ -z "$NPM_PATH" ] || [ ! -f "$NPM_PATH" ]; then
-  echo "ERROR: Could not find npm executable at $NPM_PATH"
+if [ ! -f "$NPM_PATH" ]; then
+  echo "ERROR: npm not found at $NPM_PATH"
   exit 1
 fi
-
-# Export the paths for use in this script
-export NODE="$NODE_PATH"
-export NPM="$NPM_PATH"
 
 # Add to PATH for subprocesses
 export PATH="$(dirname "$NODE_PATH"):$PATH"
+export NODE="$NODE_PATH"
+export NPM="$NPM_PATH"
 
 # Verify versions
-node_version=$("$NODE" -v | cut -dv -f2)
-npm_version=$("$NPM" -v)
+node_version=$("$NODE_PATH" -v | cut -dv -f2)
+npm_version=$("$NPM_PATH" -v)
 
-echo "Using Node.js from: $NODE_PATH"
-echo "Using npm from: $NPM_PATH"
-echo "Node.js version: v${node_version}"
-echo "npm version: ${npm_version}"
+echo "Using Node.js: $NODE_PATH (v${node_version})"
+echo "Using npm: $NPM_PATH (${npm_version})"
 
 if [ "$node_version" != "24.11.1" ]; then
-  echo "WARNING: Node.js version mismatch. Expected 24.11.1 but got $node_version"
+  echo "ERROR: Node.js version mismatch. Expected 24.11.1 but got $node_version"
+  exit 1
 fi
 
 if [ "$npm_version" != "11.6.2" ]; then
-  echo "WARNING: npm version mismatch. Expected 11.6.2 but got $npm_version"
+  echo "ERROR: npm version mismatch. Expected 11.6.2 but got $npm_version"
+  exit 1
 fi
 
 # Simple deploy script for Oracle VM
