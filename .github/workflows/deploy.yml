@@ -47,48 +47,56 @@ jobs:
             bash << 'EOF'
             set -euo pipefail
 
-            echo "=== Diagnostic Information ==="
+            echo "=== Deployment Information ==="
             echo "Current user: $(whoami)"
-            echo "Current directory: $(pwd)"
             echo "HOME: $HOME"
             echo ""
             
-            # List what's actually in the nvm directory
-            echo "=== Contents of ~/.nvm/versions/node ==="
-            ls -la "$HOME/.nvm/versions/node/" 2>/dev/null || echo "Directory not accessible"
-            echo ""
-            
-            echo "=== Checking file existence ==="
-            NODE_PATH="/home/ubuntu/.nvm/versions/node/v24.11.1/bin/node"
-            NPM_PATH="/home/ubuntu/.nvm/versions/node/v24.11.1/bin/npm"
-            
-            echo "Checking: $NODE_PATH"
-            if [ -f "$NODE_PATH" ]; then
-              echo "✓ File exists"
-              ls -la "$NODE_PATH"
-            else
-              echo "✗ File does not exist"
-              # Try with $HOME
-              echo "Trying with \$HOME: $HOME/.nvm/versions/node/v24.11.1/bin/node"
-              if [ -f "$HOME/.nvm/versions/node/v24.11.1/bin/node" ]; then
-                echo "✓ Works with \$HOME"
-              fi
+            # Use $HOME to get the correct home directory for the logged-in user
+            NODE_PATH="$HOME/.nvm/versions/node/v24.11.1/bin/node"
+            NPM_PATH="$HOME/.nvm/versions/node/v24.11.1/bin/npm"
+
+            # Verify executables exist
+            if [ ! -f "$NODE_PATH" ]; then
+              echo "ERROR: Node.js not found at $NODE_PATH"
+              echo "Listing $HOME/.nvm/versions/node/:"
+              ls -la "$HOME/.nvm/versions/node/" 2>/dev/null || echo "Directory does not exist"
+              exit 1
             fi
-            
-            echo ""
-            echo "Checking: $NPM_PATH"
-            if [ -f "$NPM_PATH" ]; then
-              echo "✓ File exists"
-              ls -la "$NPM_PATH"
-            else
-              echo "✗ File does not exist"
+
+            if [ ! -f "$NPM_PATH" ]; then
+              echo "ERROR: npm not found at $NPM_PATH"
+              exit 1
             fi
-            
-            # Get actual node and npm
-            echo ""
-            echo "=== Finding node/npm ==="
-            find "$HOME/.nvm" -name "node" -type f 2>/dev/null | head -3
-            
+
+            # Verify versions
+            NODE_VER=$("$NODE_PATH" -v | sed 's/^v//')
+            NPM_VER=$("$NPM_PATH" -v)
+
+            echo "Using Node.js: $NODE_PATH (v$NODE_VER)"
+            echo "Using npm: $NPM_PATH ($NPM_VER)"
+
+            if [ "$NODE_VER" != "24.11.1" ]; then
+              echo "ERROR: Node.js version mismatch. Expected 24.11.1 but got $NODE_VER"
+              exit 1
+            fi
+
+            if [ "$NPM_VER" != "11.6.2" ]; then
+              echo "ERROR: npm version mismatch. Expected 11.6.2 but got $NPM_VER"
+              exit 1
+            fi
+
+            # Export PATH so deploy.sh and subprocesses can find npm/pm2
+            export PATH="$(dirname "$NODE_PATH"):$PATH"
+
+            # Deploy app
+            cd "$HOME/app"
+            chmod +x ./deploy.sh || true
+
+            # PM2 environment (default 'production' if not provided)
+            export PM2_ENV="${PM2_ENV:-production}"
+
+            ./deploy.sh
             EOF
         env:
           PM2_ENV: ${{ secrets.PM2_ENV }}

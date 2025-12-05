@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Use absolute path for Node.js 24.11.1 (ubuntu user on Oracle VM)
-NODE_PATH="/home/ubuntu/.nvm/versions/node/v24.11.1/bin/node"
-NPM_PATH="/home/ubuntu/.nvm/versions/node/v24.11.1/bin/npm"
+# Use $HOME to get the correct home directory for the logged-in user
+NODE_PATH="$HOME/.nvm/versions/node/v24.11.1/bin/node"
+NPM_PATH="$HOME/.nvm/versions/node/v24.11.1/bin/npm"
 
 # Verify node and npm exist
 if [ ! -f "$NODE_PATH" ]; then
   echo "ERROR: Node.js not found at $NODE_PATH"
+  echo "HOME is: $HOME"
   exit 1
 fi
 
