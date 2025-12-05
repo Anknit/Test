@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Source bashrc to load nvm and other shell configurations
+if [ -f ~/.bashrc ]; then
+  source ~/.bashrc
+fi
+
 # Load nvm to ensure npm is available
 export NVM_DIR="${HOME}/.nvm"
 if [ -s "$NVM_DIR/nvm.sh" ]; then
@@ -9,6 +14,9 @@ fi
 if [ -s "$NVM_DIR/bash_completion" ]; then
   . "$NVM_DIR/bash_completion"
 fi
+
+# Use the correct Node.js version
+nvm use 24.11.1 || true
 
 # Verify versions
 node_version=$(node -v | cut -dv -f2)

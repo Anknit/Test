@@ -46,15 +46,25 @@ jobs:
             bash --login << 'EOF'
             set -e
             
-            # Load nvm
-            export NVM_DIR="$HOME/.nvm"
-            [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-            [ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
+            # Source bashrc to load nvm
+            if [ -f ~/.bashrc ]; then
+              source ~/.bashrc
+            fi
             
-            # Verify nvm is loaded
+            # Load nvm explicitly
+            export NVM_DIR="$HOME/.nvm"
+            if [ -s "$NVM_DIR/nvm.sh" ]; then
+              . "$NVM_DIR/nvm.sh"
+            fi
+            
+            # Debug: Check if node is available
             echo "NVM_DIR: $NVM_DIR"
-            which node || echo "node not in PATH yet"
-            which npm || echo "npm not in PATH yet"
+            echo "PATH: $PATH"
+            which node || echo "WARNING: node not found"
+            which npm || echo "WARNING: npm not found"
+            
+            # Use nvm to set the correct version
+            nvm use 24.11.1 || true
             
             # Verify Node.js and npm versions
             echo "Verifying Node.js version..."
