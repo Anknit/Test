@@ -24,19 +24,13 @@ jobs:
           ssh-keyscan -p "${{ secrets.ORACLE_SSH_PORT }}" "${{ secrets.ORACLE_HOST }}" >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
-      - name: Prepare SSH key file
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.ORACLE_SSH_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-
       - name: Copy repository to server
         uses: appleboy/scp-action@v0.1.6
         with:
           host: ${{ secrets.ORACLE_HOST }}
           username: ${{ secrets.ORACLE_USER }}
           port: ${{ secrets.ORACLE_SSH_PORT }}
-          key_path: ~/.ssh/deploy_key
+          key: ${{ secrets.ORACLE_SSH_KEY }}
           source: |
             .
           target: "/home/${{ secrets.ORACLE_USER }}/app"
@@ -48,7 +42,7 @@ jobs:
           host: ${{ secrets.ORACLE_HOST }}
           username: ${{ secrets.ORACLE_USER }}
           port: ${{ secrets.ORACLE_SSH_PORT }}
-          key_path: ~/.ssh/deploy_key
+          key: ${{ secrets.ORACLE_SSH_KEY }}
           script: |
             bash << 'EOF'
             set -euo pipefail
