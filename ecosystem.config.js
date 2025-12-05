@@ -15,7 +15,6 @@ module.exports = {
       ".env.enctoken",
       ".env.email",
       "*.log",
-      "public/static",
       "enctoken_backups/*"
     ], // Ignore these directories and files
     // Reduce restarts from rapid successive file writes
