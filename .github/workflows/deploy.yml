@@ -1,0 +1,50 @@
+name: Deploy to Oracle VM
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.ORACLE_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+      - name: Copy repository to server
+        uses: appleboy/scp-action@v0.1.6
+        with:
+          host: ${{ secrets.ORACLE_HOST }}
+          username: ${{ secrets.ORACLE_USER }}
+          port: ${{ secrets.ORACLE_SSH_PORT || '22' }}
+          key: ${{ secrets.ORACLE_SSH_KEY }}
+          # Copy everything except node_modules to save time
+          source: |
+            .
+          target: "/home/${{ secrets.ORACLE_USER }}/app"
+          rm: true
+
+      - name: Run remote deploy script
+        uses: appleboy/ssh-action@v0.1.8
+        with:
+          host: ${{ secrets.ORACLE_HOST }}
+          username: ${{ secrets.ORACLE_USER }}
+          port: ${{ secrets.ORACLE_SSH_PORT || '22' }}
+          key: ${{ secrets.ORACLE_SSH_KEY }}
+          script: |
+            set -e
+            cd ~/app
+            chmod +x ./deploy.sh || true
+            export PM2_ENV="${{ secrets.PM2_ENV || 'production' }}"
+            ./deploy.sh

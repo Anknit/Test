@@ -957,6 +957,58 @@ eas build:cancel
 ---
 
 Happy Trading! 📈
+
+## Backtest & Deployment Changes (Dec 2025)
+
+This project includes recent changes to how backtests are executed and how PM2 watches files. The following summarizes the changes and how to use them.
+
+- **Safe server-side backtests**: The REST API no longer calls `kite.main()` for backtests (which could trigger live trading). A new safe function `runBacktest(...)` is exported from `kite.js` which:
+  - Uses cached or fetched historical data only.
+  - Runs signal generation and `backtestSameDay` only (never starts live trading loops or places orders).
+  - Writes results to `backtest_results.json` and returns a results object.
+
+- **Background execution & immediate API response**: `POST /api/backtest/run` now starts `kite.runBacktest(...)` asynchronously in the background and returns immediately to avoid HTTP timeouts. The API tracks a `backtestRunning` flag to prevent concurrent runs.
+
+- **Progress logging**: While a backtest runs, `kite.runBacktest` writes timestamped progress lines to `logs/backtest_progress.log` (created if missing). Example messages:
+  - `[2025-12-05 12:34:56] Backtest started: instrument=120395527 tradingsymbol=GOLD ...`
+  - `[2025-12-05 12:35:02] Loaded 1200 bars for backtest`
+  - `[2025-12-05 12:35:10] Signals generated`
+  - `[2025-12-05 12:36:00] Backtest finished: trades=12 total_pnl=1234.56`
+
+- **Status endpoint**: A new endpoint `GET /api/backtest/status` returns the running state, the request args (if running) and the last N progress lines. Use the `lines` query param to increase/decrease the number of lines returned (default 200). Example:
+
+  GET /api/backtest/status?lines=100
+
+  Response:
+  {
+    "success": true,
+    "data": {
+      "running": true,
+      "args": { ... },
+      "progress": [
+        "[2025-12-05 12:34:56] Backtest started ...",
+        "[2025-12-05 12:35:02] Loaded 1200 bars ..."
+      ]
+    }
+  }
+
+- **Results endpoint**: `GET /api/backtest/results` returns `exists`, `running` and the `results` object when the `backtest_results.json` file is available. The frontend should poll this endpoint after starting a backtest until results appear.
+
+- **PM2 watch ignore updates**: To avoid PM2 restarts when runtime files are modified, `ecosystem.config.js` was updated to ignore common runtime files/directories created by the API:
+  - `logs/`, `cache/`, `enctoken_backups/`, `backtest_results.json`, `trading_state.json`, `.env.enctoken`, `.env.email`, `*.bak`, `*.log`, `public/static/`
+  - A `watch_delay: 3000` setting is added to debounce rapid writes and `watch_options.followSymlinks: false` to avoid symlink churn.
+
+  After pulling these changes, reload PM2 to pick up the new ignore rules:
+
+  ```bash
+  pm2 reload ecosystem.config.js --env production
+  # or
+  pm2 restart api-server
+  ```
+
+- **Security note**: Backtests still may fetch data from Kite endpoints if cached historical data is missing. Ensure you control the `ENCTOKEN` environment or allow cached data to be used in paper-only runs. `runBacktest` will use `process.env.ENCTOKEN` when present but will not perform live trading operations.
+
+If you want any of these behaviours changed (for example, streaming progress via SSE or allowing parameterized backtests from the UI), open an issue or request the enhancement.
 \n\n
 
 ---\n\n# File: :\Users\ankit\projects\test\kite-mobile\README.md\n\n# Kite Trading Bot - Mobile App

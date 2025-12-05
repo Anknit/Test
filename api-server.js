@@ -73,6 +73,9 @@ security.ensureSecurePermissions(EMAIL_CONFIG_FILE);
 let processStartTime = null;
 let processRestartCount = 0;
 let lastRestartTime = null;
+// Backtest state
+let backtestRunning = false;
+let backtestRequestArgs = null;
 
 // --- Trading State Persistence ---
 
@@ -689,11 +692,39 @@ app.get('/api/backtest/results', (req, res) => {
     const resultsFile = path.join(__dirname, 'backtest_results.json');
 
     if (!fs.existsSync(resultsFile)) {
-      return res.status(404).json({ success: false, error: 'No backtest results found' });
+      return res.json({ success: true, data: { exists: false, running: backtestRunning, args: backtestRequestArgs ? backtestRequestArgs : null } });
     }
 
     const results = JSON.parse(fs.readFileSync(resultsFile, 'utf8'));
-    res.json({ success: true, data: results });
+    // Return results in the original shape for backward compatibility with the mobile app
+    res.json({ success: true, data: results, running: backtestRunning });
+  } catch (err) {
+    security.sendErrorResponse(err, res, 500);
+  }
+});
+
+// Backtest status/progress endpoint
+app.get('/api/backtest/status', (req, res) => {
+  try {
+    const progressFile = path.join(__dirname, 'logs', 'backtest_progress.log');
+    const fallbackFile = SUPERVISOR_LOG;
+    const lines = parseInt(req.query.lines || '200');
+
+    let fileToRead = progressFile;
+    if (!fs.existsSync(fileToRead)) {
+      if (fs.existsSync(fallbackFile)) fileToRead = fallbackFile;
+      else return res.json({ success: true, data: { running: backtestRunning, args: backtestRequestArgs, progress: [] } });
+    }
+
+    // Read last N lines efficiently (simple approach)
+    const content = fs.readFileSync(fileToRead, 'utf8');
+    const allLines = content.split('\n').filter(l => l.trim());
+    const tail = allLines.slice(-lines);
+
+    // Filter for backtest-related messages if falling back to supervisor log
+    const progress = tail.filter(l => l.toLowerCase().includes('backtest') || l.toLowerCase().includes('loaded') || l.toLowerCase().includes('signals') || l.toLowerCase().includes('saved'));
+
+    res.json({ success: true, data: { running: backtestRunning, args: backtestRequestArgs, progress: progress.length ? progress : tail } });
   } catch (err) {
     security.sendErrorResponse(err, res, 500);
   }
@@ -718,28 +749,38 @@ app.post('/api/backtest/run', security.backtestLimiter, async (req, res) => {
       paper: true // backtest is always in paper mode
     };
 
-    security.logSecurityEvent('BACKTEST_STARTED', req.ip, { tradingsymbol: validated.tradingsymbol });
-    log('Running backtest...', 'INFO');
-
-    await kite.main(args);
-
-    const resultsFile = path.join(__dirname, 'backtest_results.json');
-    if (fs.existsSync(resultsFile)) {
-      const results = JSON.parse(fs.readFileSync(resultsFile, 'utf8'));
-      security.logSecurityEvent('BACKTEST_COMPLETED', req.ip);
-      log('Backtest completed successfully', 'INFO');
-      res.json({
-        success: true,
-        message: 'Backtest completed',
-        data: results
-      });
-    } else {
-      log(`Backtest failed: results file not found`, 'ERROR');
-      res.status(500).json({
-        success: false,
-        error: 'Backtest failed',
-      });
+    // Start backtest in background so web requests don't time out
+    if (backtestRunning) {
+      return res.status(409).json({ success: false, error: 'Backtest already running' });
     }
+
+    security.logSecurityEvent('BACKTEST_STARTED', req.ip, { tradingsymbol: validated.tradingsymbol });
+    log('Starting backtest in background (safe run)...', 'INFO');
+
+    // Mark running and store args for diagnostics
+    backtestRunning = true;
+    backtestRequestArgs = args;
+
+    // Start the safe backtest asynchronously and don't await completion here
+    kite.runBacktest({ instrument: args.instrument, tradingsymbol: args.tradingsymbol, days: args.days || 10, interval: args.interval || '2minute', refresh: args.refresh || false, noTimeExit: args.notimeexit || false }).then(result => {
+      backtestRunning = false;
+      backtestRequestArgs = null;
+      if (result && result.success) {
+        security.logSecurityEvent('BACKTEST_COMPLETED', req.ip);
+        log('Backtest completed successfully (background, safe run)', 'INFO');
+      } else {
+        security.logSecurityEvent('BACKTEST_FAILED', req.ip, { error: result && result.error });
+        log(`Backtest failed (background, safe run): ${result && result.error}`, 'ERROR');
+      }
+    }).catch(err => {
+      backtestRunning = false;
+      backtestRequestArgs = null;
+      security.logSecurityEvent('BACKTEST_FAILED', req.ip, { error: err && err.message });
+      log(`Backtest failed (background, safe run): ${err && err.message}`, 'ERROR');
+    });
+
+    // Respond immediately; the frontend should poll `/api/backtest/results`
+    res.json({ success: true, message: 'Backtest started (running in background). Poll /api/backtest/results for results.' });
   } catch (err) {
     security.sendErrorResponse(err, res, 400);
   }

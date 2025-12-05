@@ -37,6 +37,7 @@ const customParse = require('dayjs/plugin/customParseFormat');
 // File system module for caching data
 const fs = require('fs');
 const path = require('path');
+const KC = require('./kite_constants');
 
 // Enable dayjs plugins
 dayjs.extend(utc);
@@ -47,12 +48,10 @@ dayjs.extend(customParse);
 dayjs.tz.setDefault('Asia/Kolkata');
 
 // ---------------- CONFIG ----------------
-// Market opening time (IST) - Indian markets open at 9:00 AM
-const MARKET_OPEN = '09:00';
-// Market closing time (IST) - Extended for MCX commodities which close at 11:30 PM
-const MARKET_CLOSE = '23:30';
-// Stop taking new trades this many minutes before market close (risk management)
-const NO_ENTRY_BEFORE_CLOSE_MIN = 30;
+// Market times and entry-block window (centralized in `kite_constants.js`)
+const MARKET_OPEN = KC.MARKET_OPEN; // e.g. '09:00'
+const MARKET_CLOSE = KC.MARKET_CLOSE; // e.g. '23:30'
+const NO_ENTRY_BEFORE_CLOSE_MIN = KC.DEFAULT_BLOCK_LAST_MINUTES;
 // Zerodha Kite API endpoint for placing orders
 const ORDER_ENDPOINT = 'https://kite.zerodha.com/oms/orders/regular';
 // Zerodha Kite API endpoint for fetching order status
@@ -330,12 +329,12 @@ function macd(close, fast = 12, slow = 26, signal = 9) {
  * @returns {Array} Enriched candles with indicators and signals (1 = buy/long, -1 = sell/short, 0 = no signal)
  */
 function generateSignals(candles, params = {}, higherTf = null) {
-  // Extract strategy parameters with defaults
-  const fast = params.fast_ema || 20;              // Fast EMA period
-  const slow = params.slow_ema || 50;              // Slow EMA period
-  const rsiLen = params.rsi_len || 14;             // RSI period
-  const volMult = params.vol_mult || 1.2;          // Volume spike multiplier (1.2 = 20% above average)
-  const breakoutLook = params.breakout_lookback || 30;  // Lookback period for breakout detection
+  // Extract strategy parameters with defaults (from centralized constants)
+  const fast = params.fast_ema || KC.DEFAULT_FAST_EMA;              // Fast EMA period
+  const slow = params.slow_ema || KC.DEFAULT_SLOW_EMA;              // Slow EMA period
+  const rsiLen = params.rsi_len || KC.DEFAULT_RSI_LEN;             // RSI period
+  const volMult = params.vol_mult || KC.DEFAULT_VOL_MULT;          // Volume spike multiplier
+  const breakoutLook = params.breakout_lookback || KC.DEFAULT_BREAKOUT_LOOKBACK;  // Lookback period for breakout detection
 
   // Extract price and volume arrays from candle data
   const close = candles.map(c => c.Close);
@@ -348,7 +347,7 @@ function generateSignals(candles, params = {}, higherTf = null) {
   const emaFast = ema(close, fast);                // Fast EMA for trend
   const emaSlow = ema(close, slow);                // Slow EMA for trend
   const rsiArr = rsi(close, rsiLen);               // RSI for momentum
-  const atrArr = atr(open, high, low, close, params.atr_len || 14);  // ATR for volatility/stops
+  const atrArr = atr(open, high, low, close, params.atr_len || KC.DEFAULT_ATR_LEN);  // ATR for volatility/stops
   const volSma = sma(vol, 50);                     // Average volume for comparison
   const macdData = macd(close, 12, 26, 9);         // MACD for trend strength
 
@@ -459,10 +458,10 @@ function estimateFees(notional, commissionPerTrade = 20, turnoverFeePct = 0.0002
  * @returns {number} Number of contracts to trade
  */
 function computeQuantity({
-  capital = 500000,
-  riskPct = 0.01,
-  slTicks = 100,
-  tickValuePerContract = 10,
+  capital = KC.DEFAULT_CAPITAL,
+  riskPct = KC.DEFAULT_RISK_PCT,
+  slTicks = KC.DEFAULT_SL_TICKS,
+  tickValuePerContract = KC.DEFAULT_TICK_VALUE,
   maxContractsLimit = 1000
 } = {}) {
   const riskAmount = capital * riskPct;                        // Total rupees to risk
@@ -776,20 +775,20 @@ async function orderMonitorLoop(enctoken, pollIntervalMs = 3000, stopSignal = ()
  * @returns {Object} Trades array and statistics (total P&L, win rate, avg win/loss)
  */
 function backtestSameDay(signals, options = {}) {
-  // Extract backtest parameters
-  const capital = options.capital || 100000;
+  // Extract backtest parameters (use constants as defaults)
+  const capital = options.capital || KC.DEFAULT_CAPITAL;
   const slAtrMult = options.sl_atr_mult || null;      // Stop-loss as ATR multiple (legacy)
   const slTicks = options.sl_ticks || null;           // FIXED stop-loss in ticks (preferred for scalping)
   const targetTicks = options.target_ticks || null;   // FIXED target in ticks
-  const tickValue = options.tick_value || 10;         // Value per tick
-  const maxHoldCandles = options.max_hold_candles || null;  // Time-based exit
+  const tickValue = options.tick_value || KC.DEFAULT_TICK_VALUE;         // Value per tick
+  const maxHoldCandles = options.max_hold_candles || KC.DEFAULT_MAX_HOLD_CANDLES;  // Time-based exit
   const rr = options.rr || 1.5;                       // Target = 1.5x the risk amount (if using ATR)
-  const riskPct = options.risk_per_trade_pct || 0.01; // Risk 1% per trade
-  const commission = options.commission_per_trade || 20;
-  const slippage = options.slippage_pct || 0.0003;    // 0.03% slippage
-  const marketOpen = options.market_open || MARKET_OPEN;
-  const marketClose = options.market_close || MARKET_CLOSE;
-  const blockMins = options.block_last_minutes || NO_ENTRY_BEFORE_CLOSE_MIN;
+  const riskPct = options.risk_per_trade_pct || KC.DEFAULT_RISK_PCT; // Risk default per trade
+  const commission = options.commission_per_trade || KC.DEFAULT_COMMISSION_PER_TRADE;
+  const slippage = options.slippage_pct || KC.DEFAULT_SLIPPAGE_PCT;    // default slippage
+  const marketOpen = options.market_open || KC.MARKET_OPEN;
+  const marketClose = options.market_close || KC.MARKET_CLOSE;
+  const blockMins = options.block_last_minutes || KC.DEFAULT_BLOCK_LAST_MINUTES;
 
   let equity = capital;     // Track equity throughout backtest
   let openPos = null;       // Currently open position (null if flat)
@@ -1075,10 +1074,10 @@ async function main(argv = null) {
       process.exit(0);
     }
 
-    // 2. End-of-Day Exit Scheduler
-    const marketCloseTime = dayjs().hour(23).minute(31).second(0);
+    // 2. End-of-Day Exit Scheduler (use centralized market close; add 1 minute safety buffer)
+    const [mcH, mcM] = MARKET_CLOSE.split(':').map(Number);
+    const marketCloseTime = dayjs().hour(mcH).minute(mcM + 1).second(0);
     const msUntilClose = marketCloseTime.diff(today);
-    
     if (msUntilClose > 0) {
       console.log(`Scheduled to exit automatically at ${marketCloseTime.format('HH:mm:ss')}`);
       setTimeout(() => {
@@ -1095,10 +1094,12 @@ async function main(argv = null) {
 
     const liveTick = async () => {
       try {
-        // 3. Market Hours Check
+        // 3. Market Hours Check (use centralized market open/close)
         const now = dayjs();
-        const marketOpen = now.hour(9).minute(0);
-        const marketClose = now.hour(23).minute(30);
+        const [moH, moM] = MARKET_OPEN.split(':').map(Number);
+        const [mcH2, mcM2] = MARKET_CLOSE.split(':').map(Number);
+        const marketOpen = now.hour(moH).minute(moM);
+        const marketClose = now.hour(mcH2).minute(mcM2);
 
         if (now.isBefore(marketOpen) || now.isAfter(marketClose)) {
           console.log(`Outside market hours. Current time: ${now.format('HH:mm:ss')}. Waiting...`);
@@ -1135,10 +1136,10 @@ async function main(argv = null) {
           console.log(`>>> New Signal Detected: ${side} at ${lastSig.Close}`);
           
           const contracts = computeQuantity({
-            capital: 450000,
-            riskPct: 0.02,
-            slTicks: 40,
-            tickValuePerContract: 10
+            capital: KC.DEFAULT_CAPITAL,
+            riskPct: KC.DEFAULT_RISK_PCT,
+            slTicks: KC.DEFAULT_SL_TICKS,
+            tickValuePerContract: KC.DEFAULT_TICK_VALUE
           });
 
           if (contracts >= 1) {
@@ -1149,9 +1150,9 @@ async function main(argv = null) {
               exchange: 'MCX', // This should be dynamic
               side,
               contracts,
-              slTicks: 40,
-              targetTicks: 20,
-              tickValue: 10,
+              slTicks: KC.DEFAULT_SL_TICKS,
+              targetTicks: KC.DEFAULT_TARGET_TICKS,
+              tickValue: KC.DEFAULT_TICK_VALUE,
               paperMode: false,
               lastLTP: lastSig.Close
             });
@@ -1188,30 +1189,33 @@ async function main(argv = null) {
   }
   console.log('Bars available:', raw.length);
 
-  // Generate trading signals using technical indicators - SCALPING OPTIMIZED
+  // Generate trading signals using centralized defaults
   const signals = generateSignals(raw, {
-    fast_ema: 12,
-    slow_ema: 26,
-    rsi_len: 14,
-    vol_mult: 1.15,
-    breakout_lookback: 20,
-    atr_len: 14
+    fast_ema: KC.DEFAULT_FAST_EMA,
+    slow_ema: KC.DEFAULT_SLOW_EMA,
+    rsi_len: KC.DEFAULT_RSI_LEN,
+    vol_mult: KC.DEFAULT_VOL_MULT,
+    breakout_lookback: KC.DEFAULT_BREAKOUT_LOOKBACK,
+    atr_len: KC.DEFAULT_ATR_LEN
   });
 
+  // Build CLI backtest options (use noTimeExit and CLI days/interval)
+  const cliBacktestOptions = {
+    capital: KC.DEFAULT_CAPITAL,
+    sl_ticks: KC.DEFAULT_SL_TICKS,
+    target_ticks: KC.DEFAULT_TARGET_TICKS,
+    tick_value: KC.DEFAULT_TICK_VALUE,
+    max_hold_candles: noTimeExit ? null : KC.DEFAULT_MAX_HOLD_CANDLES,
+    risk_per_trade_pct: KC.DEFAULT_RISK_PCT,
+    commission_per_trade: KC.DEFAULT_COMMISSION_PER_TRADE,
+    slippage_pct: KC.DEFAULT_SLIPPAGE_PCT,
+    market_open: KC.MARKET_OPEN,
+    market_close: KC.MARKET_CLOSE,
+    block_last_minutes: KC.DEFAULT_BLOCK_LAST_MINUTES
+  };
+
   // Run backtest on historical data
-  const { trades, stats } = backtestSameDay(signals, {
-    capital: 450000,
-    sl_ticks: 30,
-    target_ticks: 70,
-    tick_value: 10,
-    max_hold_candles: noTimeExit ? null : 60,
-    risk_per_trade_pct: 0.014,
-    commission_per_trade: 20,
-    slippage_pct: 0.0001,
-    market_open: MARKET_OPEN,
-    market_close: MARKET_CLOSE,
-    block_last_minutes: NO_ENTRY_BEFORE_CLOSE_MIN
-  });
+  const { trades, stats } = backtestSameDay(signals, cliBacktestOptions);
   console.log('\n=== BACKTEST RESULTS ===');
   console.log(`Trades: ${stats.trades}`);
   console.log(`Win Rate: ${(stats.win_rate * 100).toFixed(2)}%`);
@@ -1245,13 +1249,7 @@ async function main(argv = null) {
       sell: signals.filter(s => s.signal === -1).length,
       frequency: signals.filter(s => s.signal !== 0).length/signals.length
     },
-    parameters: {
-      capital: 450000,
-      sl_ticks: 30,
-      target_ticks: 70,
-      risk_per_trade_pct: 0.014,
-      max_hold_candles: noTimeExit ? null : 60
-    }
+    parameters: cliBacktestOptions
   };
 
   try {
@@ -1278,5 +1276,104 @@ module.exports = {
   fetchOpenOrders,
   cancelOrder,
   orderMonitorLoop,
-  main
+  main,
+  // Safe API for server-side backtests (does not start live trading)
+  runBacktest: async function runBacktest({ instrument, tradingsymbol = 'UNKNOWN', days = 10, interval = '2minute', refresh = false, noTimeExit = false, params = {} } = {}) {
+    try {
+      const progressDir = path.join(__dirname, 'logs');
+      if (!fs.existsSync(progressDir)) fs.mkdirSync(progressDir, { recursive: true });
+      const progressFile = path.join(progressDir, 'backtest_progress.log');
+      const logProgress = (msg) => {
+        try {
+          const ts = dayjs().format('YYYY-MM-DD HH:mm:ss');
+          fs.appendFileSync(progressFile, `[${ts}] ${msg}\n`);
+        } catch (e) {
+          // ignore logging failures
+        }
+      };
+
+      logProgress(`Backtest started: instrument=${instrument} tradingsymbol=${tradingsymbol} days=${days} interval=${interval}`);
+
+      const to = dayjs();
+      const from = to.subtract(Number(days), 'day');
+
+      // Use cached data when available
+      const raw = await fetchHistoricalCached(process.env.ENCTOKEN || '', instrument, interval, from, to, refresh);
+      if (!raw || raw.length === 0) {
+        logProgress('No bars returned for backtest');
+        throw new Error('No bars returned for backtest');
+      }
+
+      logProgress(`Loaded ${raw.length} bars for backtest`);
+
+      // Use only KC defaults (ignore API payload params for backtest parameters)
+      const signals = generateSignals(raw, {
+        fast_ema: KC.DEFAULT_FAST_EMA,
+        slow_ema: KC.DEFAULT_SLOW_EMA,
+        rsi_len: KC.DEFAULT_RSI_LEN,
+        vol_mult: KC.DEFAULT_VOL_MULT,
+        breakout_lookback: KC.DEFAULT_BREAKOUT_LOOKBACK,
+        atr_len: KC.DEFAULT_ATR_LEN
+      });
+
+      logProgress('Signals generated');
+
+      // Build backtest options using only KC defaults (API payload params ignored)
+      const backtestOptions = {
+        capital: KC.DEFAULT_CAPITAL,
+        sl_ticks: KC.DEFAULT_SL_TICKS,
+        target_ticks: KC.DEFAULT_TARGET_TICKS,
+        tick_value: KC.DEFAULT_TICK_VALUE,
+        max_hold_candles: noTimeExit ? null : KC.DEFAULT_MAX_HOLD_CANDLES,
+        risk_per_trade_pct: KC.DEFAULT_RISK_PCT,
+        commission_per_trade: KC.DEFAULT_COMMISSION_PER_TRADE,
+        slippage_pct: KC.DEFAULT_SLIPPAGE_PCT,
+        market_open: KC.MARKET_OPEN,
+        market_close: KC.MARKET_CLOSE,
+        block_last_minutes: KC.DEFAULT_BLOCK_LAST_MINUTES
+      };
+
+      const { trades, stats } = backtestSameDay(signals, backtestOptions);
+
+      logProgress(`Backtest finished: trades=${stats.trades} total_pnl=${stats.total_pnl}`);
+
+      const resultsFile = path.join(__dirname, 'backtest_results.json');
+      const backtestResults = {
+        timestamp: new Date().toISOString(),
+        instrument: instrument,
+        tradingsymbol: tradingsymbol,
+        interval: interval,
+        days: days,
+        trades: stats.trades,
+        winningTrades: trades.filter(t => t.pnl > 0).length,
+        losingTrades: trades.filter(t => t.pnl < 0).length,
+        winRate: (stats.win_rate * 100).toFixed(2),
+        totalPnL: stats.total_pnl,
+        finalEquity: stats.final_equity,
+        avgWin: stats.avg_win,
+        avgLoss: stats.avg_loss,
+        profitFactor: stats.avg_win && stats.avg_loss ? Math.abs(stats.avg_win / stats.avg_loss) : 0,
+        exitReasons: trades.reduce((acc, t) => { acc[t.reason] = (acc[t.reason] || 0) + 1; return acc; }, {}),
+        signalAnalysis: {
+          total: signals.filter(s => s.signal !== 0).length,
+          buy: signals.filter(s => s.signal === 1).length,
+          sell: signals.filter(s => s.signal === -1).length,
+          frequency: signals.filter(s => s.signal !== 0).length/signals.length
+        },
+        parameters: backtestOptions,
+        tradesList: trades
+      };
+
+      try {
+        fs.writeFileSync(resultsFile, JSON.stringify(backtestResults, null, 2));
+        logProgress('Saved backtest_results.json');
+      } catch (err) {
+        logProgress(`Failed to save results file: ${err && err.message}`);
+      }
+
+      return { success: true, results: backtestResults };
+    } catch (err) {
+      return { success: false, error: err.message || String(err) };
+    }
+  }
 };
