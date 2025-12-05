@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 // Load environment variables first
 require('dotenv').config();
 
