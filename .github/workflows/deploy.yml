@@ -44,6 +44,11 @@ jobs:
           key: ${{ secrets.ORACLE_SSH_KEY }}
           script: |
             set -e
+            # Load nvm in non-interactive SSH session
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+            [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+            
             cd ~/app
             chmod +x ./deploy.sh || true
             export PM2_ENV="${{ secrets.PM2_ENV || 'production' }}"
