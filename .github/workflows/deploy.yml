@@ -42,7 +42,6 @@ jobs:
           username: ${{ secrets.ORACLE_USER }}
           port: ${{ secrets.ORACLE_SSH_PORT || '22' }}
           key: ${{ secrets.ORACLE_SSH_KEY }}
-          script_stop: ALL
           script: |
             bash --login << 'EOF'
             set -e
