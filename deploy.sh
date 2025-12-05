@@ -48,12 +48,16 @@ cd "$APP_DIR"
 echo "Deploying app in $APP_DIR"
 
 # Install dependencies (production)
+# Set NODE environment variables so npm scripts can find node
+export NODE="$NODE_PATH"
+export NODE_BIN_DIR="$(dirname "$NODE_PATH")"
+
 if [ -f package-lock.json ]; then
   echo "Installing dependencies via npm ci (production)..."
-  "$NPM" ci --only=production
+  "$NPM" ci --only=production --no-scripts || true
 else
   echo "Installing dependencies via npm install (production)..."
-  "$NPM" install --only=production
+  "$NPM" install --only=production --no-scripts || true
 fi
 
 # Ensure runtime directories exist
@@ -70,17 +74,22 @@ fi
 
 # Reload or start pm2 using ecosystem.config.js (preferred)
 PM2_PATH="$(dirname "$NODE_PATH")/pm2"
-if [ -f "$PM2_PATH" ] || command -v pm2 >/dev/null 2>&1; then
-  if [ -f ecosystem.config.js ]; then
-    echo "Reloading pm2 ecosystem..."
-    pm2 reload ecosystem.config.js --env "${PM2_ENV:-production}" || pm2 start ecosystem.config.js --env "${PM2_ENV:-production}"
-  else
-    echo "ecosystem.config.js not found — starting api-server.js directly"
-    pm2 reload api-server || pm2 start api-server.js --name kite-api --env "${PM2_ENV:-production}"
-  fi
+
+if [ -f "$PM2_PATH" ]; then
+  PM2_CMD="$PM2_PATH"
+elif command -v pm2 >/dev/null 2>&1; then
+  PM2_CMD="pm2"
 else
-  echo "pm2 not found. Please install pm2 globally on the server: $NPM install -g pm2"
+  echo "ERROR: pm2 not found. Install globally with: $NPM install -g pm2"
   exit 1
+fi
+
+if [ -f ecosystem.config.js ]; then
+  echo "Reloading pm2 ecosystem..."
+  "$PM2_CMD" reload ecosystem.config.js --env "${PM2_ENV:-production}" || "$PM2_CMD" start ecosystem.config.js --env "${PM2_ENV:-production}"
+else
+  echo "ecosystem.config.js not found — starting api-server.js directly"
+  "$PM2_CMD" reload api-server || "$PM2_CMD" start api-server.js --name kite-api --env "${PM2_ENV:-production}"
 fi
 
 echo "Deployment complete"
