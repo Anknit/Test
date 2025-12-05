@@ -12,8 +12,6 @@ module.exports = {
       "*.bak",
       "backtest_results.json",
       "trading_state.json",
-      ".env.enctoken",
-      ".env.email",
       "*.log",
       "enctoken_backups/*"
     ], // Ignore these directories and files
