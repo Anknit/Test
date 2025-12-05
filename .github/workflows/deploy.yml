@@ -42,12 +42,20 @@ jobs:
           username: ${{ secrets.ORACLE_USER }}
           port: ${{ secrets.ORACLE_SSH_PORT || '22' }}
           key: ${{ secrets.ORACLE_SSH_KEY }}
+          script_stop: ALL
           script: |
+            bash --login << 'EOF'
             set -e
-            # Load nvm in non-interactive SSH session
+            
+            # Load nvm
             export NVM_DIR="$HOME/.nvm"
-            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-            [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+            [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+            [ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
+            
+            # Verify nvm is loaded
+            echo "NVM_DIR: $NVM_DIR"
+            which node || echo "node not in PATH yet"
+            which npm || echo "npm not in PATH yet"
             
             # Verify Node.js and npm versions
             echo "Verifying Node.js version..."
@@ -70,3 +78,4 @@ jobs:
             chmod +x ./deploy.sh || true
             export PM2_ENV="${{ secrets.PM2_ENV || 'production' }}"
             ./deploy.sh
+            EOF

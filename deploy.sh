@@ -3,8 +3,25 @@ set -euo pipefail
 
 # Load nvm to ensure npm is available
 export NVM_DIR="${HOME}/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+if [ -s "$NVM_DIR/nvm.sh" ]; then
+  . "$NVM_DIR/nvm.sh"
+fi
+if [ -s "$NVM_DIR/bash_completion" ]; then
+  . "$NVM_DIR/bash_completion"
+fi
+
+# Verify versions
+node_version=$(node -v | cut -dv -f2)
+npm_version=$(npm -v)
+echo "Using Node.js v${node_version} and npm ${npm_version}"
+
+if [ "$node_version" != "24.11.1" ]; then
+  echo "WARNING: Node.js version mismatch. Expected 24.11.1 but got $node_version"
+fi
+
+if [ "$npm_version" != "11.6.2" ]; then
+  echo "WARNING: npm version mismatch. Expected 11.6.2 but got $npm_version"
+fi
 
 # Simple deploy script for Oracle VM
 # Assumes repository has been copied to $HOME/app by CI (scp) or pulled on the server
